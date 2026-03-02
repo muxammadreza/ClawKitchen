@@ -7,18 +7,50 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "enabled": { "type": "boolean", "default": true },
-      "dev": { "type": "boolean", "default": false, "description": "Run Next.js in dev mode (not recommended for end users)." },
-      "host": { "type": "string", "default": "127.0.0.1" },
-      "port": { "type": "integer", "default": 7777, "minimum": 1, "maximum": 65535 },
-      "authToken": { "type": "string", "default": "" }
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "dev": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run Next.js in dev mode (not recommended for end users)."
+      },
+      "host": {
+        "type": "string",
+        "default": "127.0.0.1"
+      },
+      "port": {
+        "type": "integer",
+        "default": 7777,
+        "minimum": 1,
+        "maximum": 65535
+      },
+      "authToken": {
+        "type": "string",
+        "default": ""
+      }
     }
   },
   "uiHints": {
-    "enabled": { "label": "Enabled" },
-    "dev": { "label": "Dev mode", "help": "Not recommended. Prefer dev=false for stability (especially over Tailscale/remote)." },
-    "host": { "label": "Host", "help": "Default binds to localhost. For Tailscale remote access, bind to your Tailscale IP or 0.0.0.0 and set authToken." },
-    "port": { "label": "Port" },
-    "authToken": { "label": "Auth token", "help": "Required when host is not localhost. Used for HTTP Basic auth (username: kitchen)." }
-  }
+    "enabled": {
+      "label": "Enabled"
+    },
+    "dev": {
+      "label": "Dev mode",
+      "help": "Not recommended. Prefer dev=false for stability (especially over Tailscale/remote)."
+    },
+    "host": {
+      "label": "Host",
+      "help": "Default binds to localhost. For Tailscale remote access, bind to your Tailscale IP or 0.0.0.0 and set authToken."
+    },
+    "port": {
+      "label": "Port"
+    },
+    "authToken": {
+      "label": "Auth token",
+      "help": "Required when host is not localhost. Used for HTTP Basic auth (username: kitchen)."
+    }
+  },
+  "main": "openclaw/index.ts"
 }
