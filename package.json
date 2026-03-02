@@ -31,7 +31,6 @@
     "next-env.d.ts",
     "tsconfig.json",
     "public/",
-    "src/",
     ".next/BUILD_ID",
     ".next/server/",
     ".next/static/",
