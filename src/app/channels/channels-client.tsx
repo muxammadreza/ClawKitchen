@@ -107,7 +107,7 @@ export default function ChannelsClient() {
 
   async function mutate(
     method: "PUT" | "DELETE",
-    body: { provider: string; config?: Record<string, unknown> }
+    body: { provider: string; config?: Record<string, unknown>; confirm?: string }
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
       const data = await fetchJson<ChannelsResponse>("/api/channels/bindings", {
@@ -151,12 +151,22 @@ export default function ChannelsClient() {
   }
 
   async function remove(p: string) {
-    if (!window.confirm(`Delete channel binding "${p}"?`)) return;
+    const expected = String(p ?? "").trim();
+    if (!expected) return;
+
+    const typed = window.prompt(
+      `This will DELETE the channel binding "${expected}" from ~/.openclaw/openclaw.json.
+
+Type the provider id (exactly) to confirm:`,
+      expected
+    );
+    const confirm = String(typed ?? "").trim();
+    if (confirm !== expected) return;
 
     setSaving(true);
     setError(null);
 
-    const result = await mutate("DELETE", { provider: p });
+    const result = await mutate("DELETE", { provider: expected, confirm });
     if (!result.ok) {
       setError(result.error);
       setSaving(false);
