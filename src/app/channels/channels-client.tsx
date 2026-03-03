@@ -46,6 +46,9 @@ export default function ChannelsClient() {
   const [configJson, setConfigJson] = useState<string>("{\n  \"enabled\": true\n}\n");
   const [saving, setSaving] = useState(false);
 
+  const [deleteProvider, setDeleteProvider] = useState<string | null>(null);
+  const [deleteTyped, setDeleteTyped] = useState<string>("");
+
   const isGatewayToolNotAvailable = useMemo(() => {
     const msg = String(error ?? "");
     return /Tool not available:\s*gateway/i.test(msg);
@@ -107,7 +110,7 @@ export default function ChannelsClient() {
 
   async function mutate(
     method: "PUT" | "DELETE",
-    body: { provider: string; config?: Record<string, unknown> }
+    body: { provider: string; config?: Record<string, unknown>; confirm?: string }
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
       const data = await fetchJson<ChannelsResponse>("/api/channels/bindings", {
@@ -150,20 +153,43 @@ export default function ChannelsClient() {
     setSaving(false);
   }
 
+
   async function remove(p: string) {
-    if (!window.confirm(`Delete channel binding "${p}"?`)) return;
+    const expected = String(p ?? "").trim();
+    if (!expected) return;
+
+    // Avoid browser-native dialogs (prompt/confirm) since they can be blocked or unreliable
+    // in some environments (e.g., embedded webviews). Use an in-app typed-confirm modal instead.
+    setDeleteProvider(expected);
+    setDeleteTyped("");
+  }
+
+  async function confirmDelete() {
+    const expected = String(deleteProvider ?? "").trim();
+    if (!expected) return;
+
+    const confirm = String(deleteTyped ?? "").trim();
+    if (confirm !== expected) return;
 
     setSaving(true);
     setError(null);
 
-    const result = await mutate("DELETE", { provider: p });
+    const result = await mutate("DELETE", { provider: expected, confirm });
     if (!result.ok) {
       setError(result.error);
       setSaving(false);
       return;
     }
+
+    setDeleteProvider(null);
+    setDeleteTyped("");
     await refresh();
     setSaving(false);
+  }
+
+  function cancelDelete() {
+    setDeleteProvider(null);
+    setDeleteTyped("");
   }
 
   function addBinding() {
@@ -181,6 +207,36 @@ export default function ChannelsClient() {
 
   return (
     <div className="space-y-6">
+      {deleteProvider ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="ck-glass w-full max-w-lg border border-[color:var(--ck-border-subtle)] p-4">
+            <div className="text-sm font-medium text-red-200">Confirm destructive delete</div>
+            <div className="mt-2 text-sm text-[color:var(--ck-text-secondary)]">
+              This will <span className="font-medium text-red-200">DELETE</span> the channel binding
+              <span className="mx-1 font-mono">{deleteProvider}</span>
+              from <span className="font-mono">~/.openclaw/openclaw.json</span>.
+            </div>
+            <div className="mt-3 text-xs text-[color:var(--ck-text-tertiary)]">
+              Type <code className="font-mono">{deleteProvider}</code> to confirm.
+            </div>
+            <input
+              value={deleteTyped}
+              onChange={(e) => setDeleteTyped(e.target.value)}
+              className="mt-2 w-full rounded-[var(--ck-radius-sm)] border border-[color:var(--ck-border-subtle)] bg-transparent px-3 py-2 font-mono text-sm"
+              placeholder={deleteProvider}
+              autoFocus
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Button onClick={cancelDelete} disabled={saving}>
+                Cancel
+              </Button>
+              <Button kind="danger" onClick={() => void confirmDelete()} disabled={saving || deleteTyped.trim() != deleteProvider}>
+                {saving ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Channels</h1>

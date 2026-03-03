@@ -57,13 +57,21 @@ export async function PUT(req: Request) {
   }
 }
 
-type DeleteBody = { provider: string };
+type DeleteBody = { provider: string; confirm?: string };
 
 export async function DELETE(req: Request) {
   try {
     const body = (await req.json()) as DeleteBody;
     const provider = String(body?.provider ?? "").trim();
     if (!provider) return NextResponse.json({ ok: false, error: "provider is required" }, { status: 400 });
+
+    const confirm = String(body?.confirm ?? "").trim();
+    if (confirm != provider) {
+      return NextResponse.json(
+        { ok: false, error: `Typed confirmation required. Set confirm="${provider}" to delete.` },
+        { status: 400 }
+      );
+    }
 
     await patchOpenClawConfigFile({
       note: `ClawKitchen Channels delete: ${provider}`,

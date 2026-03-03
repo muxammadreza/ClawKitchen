@@ -121,7 +121,7 @@ describe("api channels bindings route", () => {
       const res = await DELETE(
         new Request("https://test", {
           method: "DELETE",
-          body: JSON.stringify({ provider: "telegram" }),
+          body: JSON.stringify({ provider: "telegram", confirm: "telegram" }),
         })
       );
       expect(res.status).toBe(200);
@@ -140,7 +140,7 @@ describe("api channels bindings route", () => {
       const res = await DELETE(
         new Request("https://test", {
           method: "DELETE",
-          body: JSON.stringify({ provider: "telegram" }),
+          body: JSON.stringify({ provider: "telegram", confirm: "telegram" }),
         })
       );
       expect(res.status).toBe(500);
