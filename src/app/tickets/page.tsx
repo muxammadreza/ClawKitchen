@@ -17,5 +17,5 @@ export default async function TicketsPage({
   const teamId = team || "development-team";
 
   const tickets = await listTickets(teamId);
-  return <TicketsBoardClient tickets={tickets} basePath="/tickets" />;
+  return <TicketsBoardClient tickets={tickets} basePath="/tickets" selectedTeamId={team || null} />;
 }
