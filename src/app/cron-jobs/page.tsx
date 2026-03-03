@@ -1,7 +1,14 @@
 import CronJobsClient from "./cron-jobs-client";
 import Link from "next/link";
 
-export default function CronJobsPage() {
+export default async function CronJobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const team = typeof sp.team === "string" ? sp.team.trim() : "";
+
   return (
     <div className="ck-glass w-full p-6 sm:p-8">
       <div className="flex items-baseline justify-between gap-4">
@@ -27,7 +34,7 @@ export default function CronJobsPage() {
       </p>
 
       <div className="mt-6">
-        <CronJobsClient />
+        <CronJobsClient teamId={team || null} />
       </div>
     </div>
   );

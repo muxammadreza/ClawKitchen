@@ -70,6 +70,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const selectedTeamId = (teamIdFromPath || storedTeamId).trim();
 
+  function withTeamQuery(href: string, teamId: string): string {
+    const [pathPart, qs] = href.split("?");
+    const sp = new URLSearchParams(qs ?? "");
+    sp.set("team", teamId);
+    return `${pathPart}?${sp.toString()}`;
+  }
+
+  function navHref(href: string): string {
+    if (!selectedTeamId) return href;
+    // Only carry team context for pages that currently support it.
+    if (href === "/tickets" || href === "/goals" || href === "/cron-jobs") {
+      return withTeamQuery(href, selectedTeamId);
+    }
+    return href;
+  }
+
+  function syncTeamToCurrentUrl(teamId: string) {
+    if (!teamId) return;
+    // Team editor routes already encode team in the path.
+    if (pathname.startsWith("/teams/")) return;
+    // Only enforce on pages that support it.
+    if (pathname !== "/tickets" && pathname !== "/goals" && pathname !== "/cron-jobs") return;
+
+    try {
+      const url = new URL(window.location.href);
+      if ((url.searchParams.get("team") ?? "").trim() === teamId) return;
+      url.searchParams.set("team", teamId);
+      router.replace(url.pathname + "?" + url.searchParams.toString());
+    } catch {
+      // ignore
+    }
+  }
+
+  // If a team is selected, ensure the current URL includes ?team=... (supported pages only).
+  useEffect(() => {
+    if (!selectedTeamId) return;
+    if (typeof window === "undefined") return;
+    syncTeamToCurrentUrl(selectedTeamId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync uses window.location
+  }, [pathname, selectedTeamId]);
+
   // Keep localStorage in sync with the effective selected team (when we can compute it).
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -162,7 +203,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ),
     },
     {
-      href: `/tickets`,
+      href: navHref(`/tickets`),
       label: "Tickets",
       icon: (
         <Icon>
@@ -173,7 +214,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ),
     },
     {
-      href: `/goals`,
+      href: navHref(`/goals`),
       label: "Goals",
       icon: (
         <Icon>
@@ -185,7 +226,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ),
     },
     {
-      href: `/cron-jobs`,
+      href: navHref(`/cron-jobs`),
       label: "Cron jobs",
       icon: (
         <Icon>
@@ -244,9 +285,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     // ignore
                   }
 
-                  if (pathname === "/tickets") {
-                    router.replace(`/tickets?team=${encodeURIComponent(id)}`);
-                  }
+                  syncTeamToCurrentUrl(id);
                 }}
               >
                 👥
@@ -267,11 +306,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       // ignore
                     }
 
-                    // Keep the user on the current page; just update page-level filters where supported.
-                    if (pathname === "/tickets") {
-                      if (id) router.replace(`/tickets?team=${encodeURIComponent(id)}`);
-                      else router.replace("/tickets");
-                    }
+                    syncTeamToCurrentUrl(id);
                   }}
                   className="w-full rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/25 px-2 py-2 text-sm text-[color:var(--ck-text-primary)]"
                 >
@@ -282,6 +317,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </option>
                   ))}
                 </select>
+
+                {selectedTeamId ? (
+                  <Link
+                    href={`/teams/${encodeURIComponent(selectedTeamId)}`}
+                    className="px-2 pb-1 text-xs font-medium text-[color:var(--ck-text-tertiary)] hover:text-[color:var(--ck-text-secondary)]"
+                  >
+                    Edit team
+                  </Link>
+                ) : null}
               </div>
             )}
           </div>

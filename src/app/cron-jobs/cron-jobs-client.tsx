@@ -33,8 +33,9 @@ function isEnabled(j: CronJob): boolean {
   return Boolean(j.enabled ?? (j as { state?: { enabled?: unknown } }).state?.enabled);
 }
 
-export default function CronJobsClient() {
+export default function CronJobsClient({ teamId }: { teamId: string | null }) {
   const toast = useToast();
+  const teamFilter = (teamId ?? "").trim();
   const [loading, setLoading] = useState(false);
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [msg, setMsg] = useState<string>("");
@@ -59,7 +60,8 @@ export default function CronJobsClient() {
     setLoading(true);
     setMsg("");
     try {
-      const json = await fetchJson<{ jobs?: CronJob[] }>("/api/cron/jobs", { cache: "no-store" });
+      const url = teamFilter ? `/api/cron/jobs?teamId=${encodeURIComponent(teamFilter)}` : "/api/cron/jobs";
+      const json = await fetchJson<{ jobs?: CronJob[] }>(url, { cache: "no-store" });
       setJobs(json.jobs ?? []);
       if ((json.jobs ?? []).length === 0) {
         setMsg("No cron jobs found.");
@@ -74,7 +76,8 @@ export default function CronJobsClient() {
 
   useEffect(() => {
     refresh();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh closes over teamFilter
+  }, [teamFilter]);
 
   async function act(id: string, action: "enable" | "disable" | "run") {
     setLoading(true);
