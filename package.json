@@ -21,7 +21,10 @@
     "refactor:report": "node scripts/refactor-report.mjs",
     "smoke:goals": "node scripts/goals-smoke.mjs",
     "prepare": "husky",
-    "prepack": "npm run build"
+    "prepack": "npm run -s sync:plugin-version && npm run -s check:plugin-version",
+    "sync:plugin-version": "node scripts/sync-openclaw-plugin-version.mjs",
+    "check:plugin-version": "node scripts/check-openclaw-plugin-version.mjs",
+    "prepublishOnly": "npm run -s sync:plugin-version && npm run -s check:plugin-version"
   },
   "files": [
     "openclaw/",
