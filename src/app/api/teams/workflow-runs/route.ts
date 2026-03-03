@@ -37,6 +37,141 @@ function templateReplace(input: string, vars: Record<string, string>) {
   return out;
 }
 
+function asStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x ?? "").trim()).filter(Boolean);
+}
+
+function parseExecCommandFromArgs(args: Record<string, unknown>): { command: string; bin: string } {
+  const commandArray = Array.isArray(args.commandArray) ? args.commandArray : Array.isArray(args.command) ? args.command : null;
+  if (commandArray && commandArray.length) {
+    const parts = commandArray.map((x: unknown) => String(x ?? "").trim()).filter(Boolean);
+    if (!parts.length) throw new Error("runtime.exec requires a non-empty command");
+    return { command: parts.join(" "), bin: path.basename(parts[0]) };
+  }
+
+  const cmd = String(args.command ?? "").trim();
+  if (!cmd) throw new Error("runtime.exec requires args.command");
+  const bin = path.basename(cmd.split(/\s+/)[0] || "");
+  return { command: cmd, bin };
+}
+
+function resolveExecPolicy(workflow: WorkflowFileV1, nodeCfg: Record<string, unknown>) {
+  const meta = isRecord(workflow.meta) ? workflow.meta : {};
+
+  const metaAllowBins = asStringArray((meta as Record<string, unknown>).execAllowBins);
+  const metaAllowCommands = asStringArray((meta as Record<string, unknown>).execAllowCommands);
+
+  // Node overrides/adds.
+  const nodeAllowBins = asStringArray(nodeCfg.execAllowBins);
+  const nodeAllowCommands = asStringArray(nodeCfg.execAllowCommands);
+
+  return {
+    allowBins: new Set([...metaAllowBins, ...nodeAllowBins]),
+    allowCommands: new Set([...metaAllowCommands, ...nodeAllowCommands]),
+    host: String(nodeCfg.execHost ?? (meta as Record<string, unknown>).execHost ?? "gateway"),
+    security: String(nodeCfg.execSecurity ?? (meta as Record<string, unknown>).execSecurity ?? "allowlist"),
+    ask: String(nodeCfg.execAsk ?? (meta as Record<string, unknown>).execAsk ?? "on-miss"),
+    timeout: Number(nodeCfg.execTimeoutSeconds ?? (meta as Record<string, unknown>).execTimeoutSeconds ?? 300),
+  };
+}
+
+async function executeToolNode({
+  teamId,
+  workflow,
+  run,
+  nodeId,
+  startedAt,
+  endedAt,
+}: {
+  teamId: string;
+  workflow: WorkflowFileV1;
+  run: WorkflowRunFileV1;
+  nodeId: string;
+  startedAt: string;
+  endedAt: string;
+}): Promise<WorkflowRunNodeResultV1> {
+  const wfNode = Array.isArray(workflow.nodes) ? workflow.nodes.find((n) => n.id === nodeId) : undefined;
+  const cfg = wfNode?.config && typeof wfNode.config === "object" ? (wfNode.config as Record<string, unknown>) : {};
+  const tool = typeof cfg.tool === "string" && cfg.tool.trim() ? cfg.tool.trim() : "(unknown)";
+  const args = cfg.args && typeof cfg.args === "object" ? (cfg.args as Record<string, unknown>) : {};
+
+  const vars = {
+    date: endedAt,
+    "run.id": run.id,
+    "workflow.id": workflow.id,
+    "workflow.name": workflow.name || workflow.id,
+  };
+
+  if (tool === "fs.append") {
+    const pVal = typeof args.path === "string" ? args.path : "";
+    const cVal = typeof args.content === "string" ? args.content : "";
+    if (!pVal) throw new Error("fs.append requires args.path");
+    if (!cVal) throw new Error("fs.append requires args.content");
+
+    const content = templateReplace(cVal, vars);
+    const { full } = await appendTeamFile(teamId, pVal, content);
+    return {
+      nodeId,
+      status: "success",
+      startedAt,
+      endedAt,
+      output: { tool, appendedTo: full, bytes: content.length },
+    };
+  }
+
+  if (tool === "runtime.exec") {
+    const pol = resolveExecPolicy(workflow, cfg);
+    const { command, bin } = parseExecCommandFromArgs(args);
+
+    if (pol.allowCommands.size && !pol.allowCommands.has(command)) {
+      throw new Error(`runtime.exec command not allowlisted: ${command}`);
+    }
+    if (!pol.allowCommands.size && (pol.allowBins.size === 0 || !pol.allowBins.has(bin))) {
+      throw new Error(`runtime.exec bin not allowlisted: ${bin} (set workflow.meta.execAllowBins or node.config.execAllowBins)`);
+    }
+
+    const workdirRel = typeof args.cwd === "string" ? args.cwd : typeof args.workdir === "string" ? args.workdir : "";
+    let workdir: string | undefined;
+    if (workdirRel) {
+      const teamDir = await getTeamWorkspaceDir(teamId);
+      const resolved = path.resolve(teamDir, workdirRel);
+      if (!resolved.startsWith(teamDir + path.sep) && resolved !== teamDir) {
+        throw new Error("runtime.exec cwd must be within the team workspace");
+      }
+      workdir = resolved;
+    }
+
+    const result = await toolsInvoke({
+      tool: "exec",
+      args: {
+        command,
+        workdir,
+        timeout: pol.timeout,
+        host: pol.host,
+        security: pol.security,
+        ask: pol.ask,
+      },
+    });
+
+    return {
+      nodeId,
+      status: "success",
+      startedAt,
+      endedAt,
+      output: { tool, command, result },
+    };
+  }
+
+  return {
+    nodeId,
+    status: "success",
+    startedAt,
+    endedAt,
+    output: { tool, result: "(no-op: tool not implemented)" },
+  };
+}
+
 async function maybeExecutePendingNodesAfterApproval({
   teamId,
   workflow,
@@ -54,13 +189,6 @@ async function maybeExecutePendingNodesAfterApproval({
   const approvalIdx = wfNodes.findIndex((n) => n.id === approvalNodeId);
   if (approvalIdx < 0) return run;
 
-  const vars = {
-    date: decidedAt,
-    "run.id": run.id,
-    "workflow.id": workflow.id,
-    "workflow.name": workflow.name || workflow.id,
-  };
-
   const nextNodes: WorkflowRunNodeResultV1[] = Array.isArray(run.nodes)
     ? await Promise.all(
         run.nodes.map(async (n) => {
@@ -73,33 +201,24 @@ async function maybeExecutePendingNodesAfterApproval({
           const startedAt = n.startedAt ?? decidedAt;
 
           if (wfNode?.type === "tool") {
-            const cfg = wfNode.config && typeof wfNode.config === "object" ? (wfNode.config as Record<string, unknown>) : {};
-            const tool = typeof cfg.tool === "string" && cfg.tool.trim() ? cfg.tool.trim() : "(unknown)";
-
-            if (tool === "fs.append") {
-              const args = cfg.args && typeof cfg.args === "object" ? (cfg.args as Record<string, unknown>) : {};
-              const pVal = typeof args.path === "string" ? args.path : "";
-              const cVal = typeof args.content === "string" ? args.content : "";
-              if (pVal && cVal) {
-                const content = templateReplace(cVal, vars);
-                const { full } = await appendTeamFile(teamId, pVal, content);
-                return {
-                  ...n,
-                  status: "success",
-                  startedAt,
-                  endedAt: decidedAt,
-                  output: { tool, appendedTo: full, bytes: content.length },
-                };
-              }
+            try {
+              return await executeToolNode({
+                teamId,
+                workflow,
+                run,
+                nodeId: n.nodeId,
+                startedAt,
+                endedAt: decidedAt,
+              });
+            } catch (e: unknown) {
+              return {
+                ...n,
+                status: "error",
+                startedAt,
+                endedAt: decidedAt,
+                output: { error: errorMessage(e) },
+              };
             }
-
-            return {
-              ...n,
-              status: "success",
-              startedAt,
-              endedAt: decidedAt,
-              output: { tool, result: "(sample execution after approval)" },
-            };
           }
 
           return {
@@ -107,13 +226,170 @@ async function maybeExecutePendingNodesAfterApproval({
             status: "success",
             startedAt,
             endedAt: decidedAt,
-            output: n.output ?? { note: "(sample execution after approval)" },
+            output: n.output ?? { note: "(resumed after approval)" },
           };
         })
       )
     : [];
 
   return { ...run, nodes: nextNodes };
+}
+
+
+async function executeWorkflowRunMvp({
+  teamId,
+  workflow,
+  runId,
+}: {
+  teamId: string;
+  workflow: WorkflowFileV1;
+  runId: string;
+}): Promise<WorkflowRunFileV1> {
+  const wfNodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+  const t0 = Date.now();
+
+  const approvalIdx = wfNodes.findIndex((n) => n.type === "human_approval");
+  const approvalNodeId = approvalIdx >= 0 ? wfNodes[approvalIdx]?.id : undefined;
+
+  const nodeResults: WorkflowRunNodeResultV1[] = [];
+
+  // Execute nodes sequentially until we hit an approval gate or an error.
+  for (let idx = 0; idx < wfNodes.length; idx++) {
+    const node = wfNodes[idx];
+    const startedAt = new Date(t0 + idx * 25).toISOString();
+    const endedAt = new Date(t0 + idx * 25 + 10).toISOString();
+
+    const beforeApproval = approvalIdx < 0 ? true : idx < approvalIdx;
+    const isApproval = approvalNodeId ? node.id === approvalNodeId : false;
+    const afterApproval = approvalIdx >= 0 && idx > approvalIdx;
+
+    if (afterApproval) {
+      nodeResults.push({ nodeId: node.id, status: "pending", startedAt });
+      continue;
+    }
+
+    if (isApproval) {
+      const runForMessage: WorkflowRunFileV1 = {
+        schema: "clawkitchen.workflow-run.v1",
+        id: runId,
+        workflowId: workflow.id,
+        startedAt: new Date(t0).toISOString(),
+        status: "waiting_for_approval",
+        summary: "Run awaiting approval",
+        nodes: nodeResults.concat([
+          {
+            nodeId: node.id,
+            status: "waiting",
+            startedAt,
+            output: {
+              decision: "pending",
+              options: ["approve", "request_changes", "cancel"],
+            },
+          },
+        ]),
+        approval: {
+          nodeId: node.id,
+          state: "pending",
+          requestedAt: endedAt,
+        },
+      };
+
+      // Best-effort message send. We record outbound metadata below.
+      let outbound: { provider: string; target: string; sentAt?: string; attemptedAt?: string; error?: string } | undefined = undefined;
+      try {
+        const { provider, target } = await resolveApprovalChannel({ workflow, approvalNodeId: node.id });
+        if (target) {
+          try {
+            await maybeSendApprovalRequest({ teamId, workflow, run: runForMessage, approvalNodeId: node.id });
+            outbound = { provider, target, sentAt: nowIso() };
+          } catch (e: unknown) {
+            outbound = { provider, target, error: errorMessage(e), attemptedAt: nowIso() };
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      nodeResults.push({
+        nodeId: node.id,
+        status: "waiting",
+        startedAt,
+        output: {
+          decision: "pending",
+          options: ["approve", "request_changes", "cancel"],
+        },
+      });
+
+      const run: WorkflowRunFileV1 = {
+        schema: "clawkitchen.workflow-run.v1",
+        id: runId,
+        workflowId: workflow.id,
+        startedAt: new Date(t0).toISOString(),
+        status: "waiting_for_approval",
+        summary: "Run awaiting approval",
+        nodes: nodeResults,
+        approval: {
+          nodeId: node.id,
+          state: "pending",
+          requestedAt: endedAt,
+          outbound,
+        },
+      };
+
+      return run;
+    }
+
+    if (!beforeApproval) {
+      // Defensive: if we somehow reach here after approval, keep pending.
+      nodeResults.push({ nodeId: node.id, status: "pending", startedAt });
+      continue;
+    }
+
+    if (node.type === "tool") {
+      try {
+        const res = await executeToolNode({
+          teamId,
+          workflow,
+          run: { schema: "clawkitchen.workflow-run.v1", id: runId, workflowId: workflow.id, startedAt: new Date(t0).toISOString(), status: "running", nodes: nodeResults } as WorkflowRunFileV1,
+          nodeId: node.id,
+          startedAt,
+          endedAt,
+        });
+        nodeResults.push(res);
+      } catch (e: unknown) {
+        nodeResults.push({ nodeId: node.id, status: "error", startedAt, endedAt, output: { error: errorMessage(e) } });
+        // Mark remaining nodes as skipped.
+        for (let j = idx + 1; j < wfNodes.length; j++) {
+          nodeResults.push({ nodeId: wfNodes[j]!.id, status: "skipped", startedAt: endedAt, endedAt, output: { note: "skipped due to prior error" } });
+        }
+        return {
+          schema: "clawkitchen.workflow-run.v1",
+          id: runId,
+          workflowId: workflow.id,
+          startedAt: new Date(t0).toISOString(),
+          endedAt,
+          status: "error",
+          summary: "Run failed",
+          nodes: nodeResults,
+        };
+      }
+      continue;
+    }
+
+    // Non-tool nodes: persist as no-op successes for now.
+    nodeResults.push({ nodeId: node.id, status: "success", startedAt, endedAt, output: { note: "(no-op: node type not executable yet)" } });
+  }
+
+  return {
+    schema: "clawkitchen.workflow-run.v1",
+    id: runId,
+    workflowId: workflow.id,
+    startedAt: new Date(t0).toISOString(),
+    endedAt: nowIso(),
+    status: "success",
+    summary: "Run completed",
+    nodes: nodeResults,
+  };
 }
 
 function formatApprovalPacketMessage(workflow: WorkflowFileV1, run: WorkflowRunFileV1, approvalNodeId: string): string {
@@ -373,6 +649,10 @@ export async function POST(req: Request) {
             approvalNodeId,
             decidedAt,
           });
+          const hasError = Array.isArray(finalRun.nodes) && finalRun.nodes.some((n) => n.status === "error");
+          if (hasError) {
+            finalRun = { ...finalRun, status: "error", endedAt: decidedAt };
+          }
         } catch {
           // ignore; keep file-first decision recorded
         }
@@ -573,15 +853,10 @@ export async function POST(req: Request) {
 
             return baseRun satisfies WorkflowRunFileV1;
           })()
-        : {
-            schema: "clawkitchen.workflow-run.v1",
-            id: runId,
-            workflowId,
-            startedAt: nowIso(),
-            status: "running",
-            summary: "Run created (execution engine not yet wired)",
-            nodes: [],
-          };
+        : await (async () => {
+            const wf = (await readWorkflow(teamId, workflowId)).workflow;
+            return executeWorkflowRunMvp({ teamId, workflow: wf, runId });
+          })();
 
     return jsonOkRest({ ...(await writeWorkflowRun(teamId, workflowId, run)), runId });
   } catch (err: unknown) {
