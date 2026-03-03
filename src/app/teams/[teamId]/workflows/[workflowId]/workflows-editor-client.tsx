@@ -1301,42 +1301,81 @@ export default function WorkflowsEditorClient({
                     <div className="px-3 pb-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-xs font-medium text-[color:var(--ck-text-secondary)]">Runs (history)</div>
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={async () => {
-                          const wfId = String(wf.id ?? "").trim();
-                          if (!wfId) return;
-                          setWorkflowRunsError("");
-                          setWorkflowRunsLoading(true);
-                          try {
-                            const res = await fetch("/api/teams/workflow-runs", {
-                              method: "POST",
-                              headers: { "content-type": "application/json" },
-                              body: JSON.stringify({ teamId, workflowId: wfId, mode: "sample" }),
-                            });
-                            const json = await res.json();
-                            if (!res.ok || !json.ok) throw new Error(json.error || "Failed to create sample run");
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={async () => {
+                            const wfId = String(wf.id ?? "").trim();
+                            if (!wfId) return;
+                            setWorkflowRunsError("");
+                            setWorkflowRunsLoading(true);
+                            try {
+                              const res = await fetch("/api/teams/workflow-runs", {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: JSON.stringify({ teamId, workflowId: wfId, mode: "sample" }),
+                              });
+                              const json = await res.json();
+                              if (!res.ok || !json.ok) throw new Error(json.error || "Failed to create sample run");
 
-                            const listRes = await fetch(
-                              `/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(wfId)}`,
-                              { cache: "no-store" }
-                            );
-                            const listJson = await listRes.json();
-                            if (!listRes.ok || !listJson.ok) throw new Error(listJson.error || "Failed to refresh runs");
-                            const files = Array.isArray(listJson.files) ? listJson.files : [];
-                            const list = files.map((f: unknown) => String(f ?? "").trim()).filter((f: string) => Boolean(f));
-                            setWorkflowRuns(list);
-                          } catch (e: unknown) {
-                            setWorkflowRunsError(e instanceof Error ? e.message : String(e));
-                          } finally {
-                            setWorkflowRunsLoading(false);
-                          }
-                        }}
-                        className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium text-[color:var(--ck-text-primary)] hover:bg-white/10 disabled:opacity-50"
-                      >
-                        + Sample run
-                      </button>
+                              const listRes = await fetch(
+                                `/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(wfId)}`,
+                                { cache: "no-store" }
+                              );
+                              const listJson = await listRes.json();
+                              if (!listRes.ok || !listJson.ok) throw new Error(listJson.error || "Failed to refresh runs");
+                              const files = Array.isArray(listJson.files) ? listJson.files : [];
+                              const list = files.map((f: unknown) => String(f ?? "").trim()).filter((f: string) => Boolean(f));
+                              setWorkflowRuns(list);
+                            } catch (e: unknown) {
+                              setWorkflowRunsError(e instanceof Error ? e.message : String(e));
+                            } finally {
+                              setWorkflowRunsLoading(false);
+                            }
+                          }}
+                          className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium text-[color:var(--ck-text-primary)] hover:bg-white/10 disabled:opacity-50"
+                        >
+                          + Sample run
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={async () => {
+                            const wfId = String(wf.id ?? "").trim();
+                            if (!wfId) return;
+                            setWorkflowRunsError("");
+                            setWorkflowRunsLoading(true);
+                            try {
+                              const res = await fetch("/api/teams/workflow-runs", {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: JSON.stringify({ teamId, workflowId: wfId, mode: "execute" }),
+                              });
+                              const json = await res.json();
+                              if (!res.ok || !json.ok) throw new Error(json.error || "Failed to create run");
+
+                              const listRes = await fetch(
+                                `/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(wfId)}`,
+                                { cache: "no-store" }
+                              );
+                              const listJson = await listRes.json();
+                              if (!listRes.ok || !listJson.ok) throw new Error(listJson.error || "Failed to refresh runs");
+                              const files = Array.isArray(listJson.files) ? listJson.files : [];
+                              const list = files.map((f: unknown) => String(f ?? "").trim()).filter((f: string) => Boolean(f));
+                              setWorkflowRuns(list);
+                            } catch (e: unknown) {
+                              setWorkflowRunsError(e instanceof Error ? e.message : String(e));
+                            } finally {
+                              setWorkflowRunsLoading(false);
+                            }
+                          }}
+                          className="rounded-[var(--ck-radius-sm)] border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-50 hover:bg-emerald-500/15 disabled:opacity-50"
+                          title="Executes tool nodes (fs.append, runtime.exec)"
+                        >
+                          + Run (execute)
+                        </button>
+                      </div>
                     </div>
 
                     {workflowRunsError ? (
