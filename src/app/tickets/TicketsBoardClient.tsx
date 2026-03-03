@@ -44,9 +44,11 @@ function formatAge(hours: number) {
 export function TicketsBoardClient({
   tickets,
   basePath,
+  selectedTeamId,
 }: {
   tickets: TicketSummary[];
   basePath: string;
+  selectedTeamId: string | null;
 }) {
   const [dateFilter, setDateFilter] = useState<DateFilter>("30d");
   const [customFrom, setCustomFrom] = useState<string>("");
@@ -111,7 +113,12 @@ export function TicketsBoardClient({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Tickets</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Tickets</h1>
+          <p className="mt-1 text-xs text-[color:var(--ck-text-tertiary)]">
+            Viewing: <span className="font-medium text-[color:var(--ck-text-secondary)]">{selectedTeamId ?? "all"}</span>
+          </p>
+        </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs text-[color:var(--ck-text-secondary)]">
@@ -171,7 +178,7 @@ export function TicketsBoardClient({
 
               {byStage[key].map((t) => (
                 <div
-                  key={t.id}
+                  key={`${t.teamId}:${t.id}`}
                   className="rounded-[var(--ck-radius-sm)] border border-[color:var(--ck-border-subtle)] bg-[color:var(--ck-bg-glass-strong)] p-3"
                 >
                   <a
@@ -181,6 +188,8 @@ export function TicketsBoardClient({
                     {String(t.number).padStart(4, "0")} — {t.title}
                   </a>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[color:var(--ck-text-secondary)]">
+                    <span className="rounded bg-white/5 px-1.5 py-0.5">{t.teamId}</span>
+                    <span>·</span>
                     <span>{t.owner ? `Owner: ${t.owner}` : "Owner: —"}</span>
                     <span>·</span>
                     <span>Age: {formatAge(t.ageHours)}</span>
@@ -192,9 +201,7 @@ export function TicketsBoardClient({
         ))}
       </div>
 
-      <p className="text-xs text-[color:var(--ck-text-tertiary)]">
-        Source of truth: ticket markdown files in the team workspace.
-      </p>
+      <p className="text-xs text-[color:var(--ck-text-tertiary)]">Source of truth: ticket markdown files in the team workspace.</p>
     </div>
   );
 }
