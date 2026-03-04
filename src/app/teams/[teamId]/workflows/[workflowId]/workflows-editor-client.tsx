@@ -1455,9 +1455,9 @@ export default function WorkflowsEditorClient({
                             }
                           }}
                           className="rounded-[var(--ck-radius-sm)] border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-50 hover:bg-emerald-500/15 disabled:opacity-50"
-                          title="Executes tool nodes (fs.append, runtime.exec)"
+                          title="Enqueue a run for the workflow runner (Kitchen does not execute nodes)"
                         >
-                          + Run (execute)
+                          + Run (enqueue)
                         </button>
                       </div>
                     </div>
