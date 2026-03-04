@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { WorkflowFileV1 } from "@/lib/workflows/types";
 import { validateWorkflowFileV1 } from "@/lib/workflows/validate";
 
@@ -30,10 +31,16 @@ export default function WorkflowsEditorClient({
 
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
+  // Canvas zoom
+  const [zoom, setZoom] = useState(1);
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 2.5;
+  const ZOOM_STEP = 0.1;
+
   // Canvas: selection, drag, node/edge creation.
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string>("");
-  const [dragging, setDragging] = useState<null | { nodeId: string; dx: number; dy: number; left: number; top: number }>(null);
+  const [dragging, setDragging] = useState<null | { nodeId: string; dx: number; dy: number }>(null);
 
   const [activeTool, setActiveTool] = useState<
     | { kind: "select" }
@@ -416,6 +423,16 @@ export default function WorkflowsEditorClient({
           <div
             ref={canvasRef}
             className="relative h-full min-h-0 w-full flex-1 overflow-auto bg-black/20"
+            onWheel={(e) => {
+              // Ctrl/Cmd + wheel to zoom (avoid hijacking normal scroll)
+              if (!e.ctrlKey && !e.metaKey) return;
+              e.preventDefault();
+              const dir = e.deltaY > 0 ? -1 : 1;
+              setZoom((z) => {
+                const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round((z + dir * ZOOM_STEP) * 10) / 10));
+                return next;
+              });
+            }}
             onClick={(e) => {
               if (activeTool.kind !== "add-node") return;
               const wf = parsed.wf;
@@ -428,8 +445,8 @@ export default function WorkflowsEditorClient({
               if (target && target.closest("[data-wf-node='1']")) return;
 
               const rect = el.getBoundingClientRect();
-              const clickX = e.clientX - rect.left + el.scrollLeft;
-              const clickY = e.clientY - rect.top + el.scrollTop;
+              const clickX = (e.clientX - rect.left + el.scrollLeft) / zoom;
+              const clickY = (e.clientY - rect.top + el.scrollTop) / zoom;
 
               const base = activeTool.nodeType.replace(/[^a-z0-9_\-]/gi, "_");
               const used = new Set(wf.nodes.map((n) => n.id));
@@ -457,25 +474,47 @@ export default function WorkflowsEditorClient({
               setActiveTool({ kind: "select" });
             }}
           >
-            <div className="relative h-[1200px] w-[2200px]">
-              {/* Tool palette / agent palette */}
+            <div className="relative" style={{ width: 2200 * zoom, height: 1200 * zoom }}>
+              {/* Tool palette / agent palette (not scaled) */}
               <div
                 className={
                   toolsCollapsed
-                    ? "sticky left-3 top-3 z-20 w-[44px] overflow-hidden rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/40 p-2 backdrop-blur"
-                    : "sticky left-3 top-3 z-20 w-[260px] rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/40 p-2 backdrop-blur"
+                    ? "absolute left-3 top-3 z-20 w-[44px] overflow-hidden rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/40 p-2 backdrop-blur"
+                    : "absolute left-3 top-3 z-20 w-[260px] rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/40 p-2 backdrop-blur"
                 }
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className={toolsCollapsed ? "hidden" : "text-[10px] font-medium uppercase tracking-wide text-[color:var(--ck-text-tertiary)]"}>Tools</div>
-                  <button
-                    type="button"
-                    onClick={() => setToolsCollapsed((v) => !v)}
-                    className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-[color:var(--ck-text-secondary)] hover:bg-white/10"
-                    title={toolsCollapsed ? "Expand" : "Collapse"}
-                  >
-                    {toolsCollapsed ? ">" : "<"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className={toolsCollapsed ? "hidden" : "flex items-center gap-1"}>
+                      <button
+                        type="button"
+                        onClick={() => setZoom((z) => Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 10) / 10))}
+                        className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-[color:var(--ck-text-secondary)] hover:bg-white/10"
+                        title="Zoom out (Ctrl/Cmd+wheel)"
+                      >
+                        -
+                      </button>
+                      <div className="min-w-[42px] text-center text-[10px] text-[color:var(--ck-text-tertiary)]">{Math.round(zoom * 100)}%</div>
+                      <button
+                        type="button"
+                        onClick={() => setZoom((z) => Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 10) / 10))}
+                        className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-[color:var(--ck-text-secondary)] hover:bg-white/10"
+                        title="Zoom in (Ctrl/Cmd+wheel)"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setToolsCollapsed((v) => !v)}
+                      className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-[color:var(--ck-text-secondary)] hover:bg-white/10"
+                      title={toolsCollapsed ? "Expand" : "Collapse"}
+                    >
+                      {toolsCollapsed ? ">" : "<"}
+                    </button>
+                  </div>
                 </div>
                 {toolsCollapsed ? (
                   <div className="mt-2 flex flex-col items-center gap-2">
@@ -500,7 +539,8 @@ export default function WorkflowsEditorClient({
                           label: "Connect",
                           active: activeTool.kind === "connect",
                           onClick: () => {
-                            setActiveTool({ kind: "connect" });
+                            // Toggle connect tool.
+                            setActiveTool((t) => (t.kind === "connect" ? { kind: "select" } : { kind: "connect" }));
                             setConnectFromNodeId("");
                           },
                           icon: (
@@ -729,7 +769,13 @@ export default function WorkflowsEditorClient({
                 </div>
               </div>
 
-              <svg className="absolute inset-0" width={2200} height={1200}>
+              <div className="relative h-[1200px] w-[2200px]" style={{ transform: `scale(${zoom})`, transformOrigin: "0 0" }}>
+              <svg
+                className="pointer-events-none absolute inset-0 -z-10"
+                width={2200}
+                height={1200}
+                style={{ overflow: "visible" }}
+              >
                 {(parsed.wf?.edges ?? []).map((e) => {
                   const wf = parsed.wf;
                   if (!wf) return null;
@@ -740,7 +786,17 @@ export default function WorkflowsEditorClient({
                   const ay = (typeof a.y === "number" ? a.y : 80) + 24;
                   const bx = (typeof b.x === "number" ? b.x : 80) + 90;
                   const by = (typeof b.y === "number" ? b.y : 80) + 24;
-                  return <line key={e.id} x1={ax} y1={ay} x2={bx} y2={by} stroke="rgba(255,255,255,0.18)" strokeWidth={2} />;
+                  return (
+                    <line
+                      key={e.id}
+                      x1={ax}
+                      y1={ay}
+                      x2={bx}
+                      y2={by}
+                      stroke="rgba(255,255,255,0.35)"
+                      strokeWidth={3}
+                    />
+                  );
                 })}
               </svg>
 
@@ -754,7 +810,7 @@ export default function WorkflowsEditorClient({
                     role="button"
                     tabIndex={0}
                     data-wf-node="1"
-                    draggable={activeTool.kind === "select"}
+                    draggable={activeTool.kind === "select" || activeTool.kind === "connect"}
                     onDragStart={(e) => {
                       // allow agent pills to be dropped; do not start a browser drag ghost for nodes.
                       if (activeTool.kind !== "select") return;
@@ -799,13 +855,16 @@ export default function WorkflowsEditorClient({
                         const id = `e${Date.now()}`;
                         const nextEdge: WorkflowFileV1["edges"][number] = { id, from, to };
                         setWorkflow({ ...wf, edges: [...(wf.edges ?? []), nextEdge] });
+                        // After creating an edge, return to Select tool.
+                        setActiveTool({ kind: "select" });
                         return;
                       }
 
                       setSelectedNodeId(n.id);
                     }}
                     onPointerDown={(e) => {
-                      if (activeTool.kind !== "select") return;
+                      // Allow dragging nodes even in connect mode (connect is click-to-connect, not drag-to-connect).
+                      if (activeTool.kind === "add-node") return;
                       if (e.button !== 0) return;
                       const el = canvasRef.current;
                       if (!el) return;
@@ -817,7 +876,10 @@ export default function WorkflowsEditorClient({
                         // ignore
                       }
                       e.preventDefault();
-                      setDragging({ nodeId: n.id, dx: e.clientX - rect.left - x, dy: e.clientY - rect.top - y, left: rect.left, top: rect.top });
+
+                      const pointerX = (e.clientX - rect.left + el.scrollLeft) / zoom;
+                      const pointerY = (e.clientY - rect.top + el.scrollTop) / zoom;
+                      setDragging({ nodeId: n.id, dx: pointerX - x, dy: pointerY - y });
                     }}
                     onPointerUp={(e) => {
                       try {
@@ -834,16 +896,19 @@ export default function WorkflowsEditorClient({
                       if (!wf) return;
                       const el = canvasRef.current;
                       if (!el) return;
-                      const nextX = e.clientX - dragging.left - dragging.dx;
-                      const nextY = e.clientY - dragging.top - dragging.dy;
+                      const rect = el.getBoundingClientRect();
+                      const pointerX = (e.clientX - rect.left + el.scrollLeft) / zoom;
+                      const pointerY = (e.clientY - rect.top + el.scrollTop) / zoom;
+                      const nextX = pointerX - dragging.dx;
+                      const nextY = pointerY - dragging.dy;
                       const nextNodes = wf.nodes.map((node) => (node.id === n.id ? { ...node, x: nextX, y: nextY } : node));
                       const next: WorkflowFileV1 = { ...wf, nodes: nextNodes };
                       setStatus({ kind: "ready", jsonText: JSON.stringify(next, null, 2) + "\n" });
                     }}
                     className={
                       selected
-                        ? "absolute cursor-grab rounded-[var(--ck-radius-sm)] border border-white/25 bg-white/10 px-3 py-2 text-xs text-[color:var(--ck-text-primary)] shadow-[var(--ck-shadow-1)]"
-                        : "absolute cursor-grab rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-3 py-2 text-xs text-[color:var(--ck-text-secondary)] hover:bg-white/10"
+                        ? "absolute z-10 cursor-grab rounded-[var(--ck-radius-sm)] border border-white/25 bg-white/10 px-3 py-2 text-xs text-[color:var(--ck-text-primary)] shadow-[var(--ck-shadow-1)]"
+                        : "absolute z-10 cursor-grab rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-3 py-2 text-xs text-[color:var(--ck-text-secondary)] hover:bg-white/10"
                     }
                     style={{ left: x, top: y, width: 180 }}
                   >
@@ -1018,6 +1083,7 @@ export default function WorkflowsEditorClient({
                   </div>
                 );
               })()}
+              </div>
             </div>
           </div>
         )}
@@ -1036,7 +1102,7 @@ export default function WorkflowsEditorClient({
               const approvalTarget = String(meta.approvalTarget ?? "").trim();
 
               // Cron schedule suggestions.
-              // Note: dev-team automation defaults should avoid the 02:00–07:00 America/New_York blackout window.
+              // Note: dev-team automation defaults should avoid the 02:00-07:00 America/New_York blackout window.
               // We keep presets in "safe" hours by default.
               const presets = [
                 { label: "(no preset)", expr: "" },
@@ -1310,7 +1376,15 @@ export default function WorkflowsEditorClient({
                     <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-[color:var(--ck-text-primary)]">Runs</summary>
                     <div className="px-3 pb-3">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs font-medium text-[color:var(--ck-text-secondary)]">Runs (history)</div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-xs font-medium text-[color:var(--ck-text-secondary)]">Runs (history)</div>
+                        <Link
+                          href={`/teams/${encodeURIComponent(teamId)}/runs`}
+                          className="text-[10px] font-medium text-[color:var(--ck-text-tertiary)] hover:text-[color:var(--ck-text-secondary)] hover:underline"
+                        >
+                          View all →
+                        </Link>
+                      </div>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -1399,37 +1473,27 @@ export default function WorkflowsEditorClient({
                         <div className="text-xs text-[color:var(--ck-text-secondary)]">Loading runs…</div>
                       ) : workflowRuns.length ? (
                         workflowRuns.slice(0, 8).map((f) => {
+                          const wfId = String(wf.id ?? "").trim();
                           const runId = String(f).replace(/\.run\.json$/i, "");
                           const selected = selectedWorkflowRunId === runId;
+                          const href = wfId
+                            ? `/teams/${encodeURIComponent(teamId)}/runs/${encodeURIComponent(wfId)}/${encodeURIComponent(runId)}`
+                            : "#";
+
                           return (
-                            <button
+                            <Link
                               key={f}
-                              type="button"
-                              onClick={async () => {
-                                const wfId = String(wf.id ?? "").trim();
-                                if (!wfId) return;
-                                setSelectedWorkflowRunId(runId);
-                                setWorkflowRunsError("");
-                                try {
-                                  const res = await fetch(
-                                    `/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(wfId)}&runId=${encodeURIComponent(runId)}`,
-                                    { cache: "no-store" }
-                                  );
-                                  const json = await res.json();
-                                  if (!res.ok || !json.ok) throw new Error(json.error || "Failed to load run");
-                                  // (run detail rendering not implemented yet; selecting stores runId only)
-                                } catch (e: unknown) {
-                                  setWorkflowRunsError(e instanceof Error ? e.message : String(e));
-                                }
-                              }}
+                              href={href}
+                              onClick={() => setSelectedWorkflowRunId(runId)}
                               className={
                                 selected
-                                  ? "w-full rounded-[var(--ck-radius-sm)] bg-white/10 px-2 py-1 text-left text-[11px] text-[color:var(--ck-text-primary)]"
-                                  : "w-full rounded-[var(--ck-radius-sm)] px-2 py-1 text-left text-[11px] text-[color:var(--ck-text-secondary)] hover:bg-white/5"
+                                  ? "block w-full rounded-[var(--ck-radius-sm)] bg-white/10 px-2 py-1 text-left text-[11px] font-mono text-[color:var(--ck-text-primary)]"
+                                  : "block w-full rounded-[var(--ck-radius-sm)] px-2 py-1 text-left text-[11px] font-mono text-[color:var(--ck-text-secondary)] hover:bg-white/5"
                               }
+                              title="Open run detail"
                             >
                               {runId}
-                            </button>
+                            </Link>
                           );
                         })
                       ) : (
