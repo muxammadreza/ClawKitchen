@@ -27,7 +27,7 @@ vi.mock("@/lib/gateway", () => ({
   toolsInvoke: toolsInvokeMock,
 }));
 
-describe("/api/teams/workflow-runs POST (execute)", () => {
+describe("/api/teams/workflow-runs POST (enqueue for runner)", () => {
   beforeEach(async () => {
     toolsInvokeMock.mockClear();
     TEAM_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "clawkitchen-team-"));
@@ -45,7 +45,7 @@ describe("/api/teams/workflow-runs POST (execute)", () => {
     }
   });
 
-  it("executes fs.append tool node and persists run file", async () => {
+  it("enqueues a runner-friendly run log and returns a pending Kitchen run", async () => {
     const teamId = "development-team";
     const workflowId = "wf-append";
 
@@ -83,17 +83,24 @@ describe("/api/teams/workflow-runs POST (execute)", () => {
     const runRaw = await fs.readFile(json.path, "utf8");
     const run = JSON.parse(runRaw) as import("@/lib/workflows/runs-types").WorkflowRunFileV1;
 
-    expect(run.status).toBe("success");
+    // Kitchen now enqueues; it does not execute nodes.
+    expect(run.status).toBe("running");
     expect(run.nodes).toHaveLength(1);
-    expect(run.nodes[0].status).toBe("success");
-    expect(run.nodes[0].output.tool).toBe("fs.append");
-    expect(String(run.nodes[0].output.appendedTo)).toContain(path.join(TEAM_DIR, "notes", "log.txt"));
+    expect(run.nodes[0].status).toBe("pending");
 
-    const appended = await fs.readFile(path.join(TEAM_DIR, "notes", "log.txt"), "utf8");
-    expect(appended).toBe("hello");
+    // Runner-friendly run log should exist at shared-context/workflow-runs/<runId>.run.json
+    const runnerLogPath = path.join(TEAM_DIR, "shared-context", "workflow-runs", `${json.runId}.run.json`);
+    const runnerRaw = await fs.readFile(runnerLogPath, "utf8");
+    const runnerLog = JSON.parse(runnerRaw) as { status?: string; workflow?: { file?: string } };
+    expect(runnerLog.status).toBe("queued");
+    expect(String(runnerLog.workflow?.file)).toBe(`${workflowId}.workflow.json`);
+
+    // No local side effects (fs.append should not have run).
+    await expect(fs.readFile(path.join(TEAM_DIR, "notes", "log.txt"), "utf8")).rejects.toThrow();
+    expect(toolsInvokeMock).not.toHaveBeenCalled();
   });
 
-  it("denies runtime.exec when bin is not allowlisted", async () => {
+  it("does not execute runtime.exec during enqueue (runner enforces allowlist)", async () => {
     const teamId = "development-team";
     const workflowId = "wf-exec-deny";
 
@@ -129,13 +136,13 @@ describe("/api/teams/workflow-runs POST (execute)", () => {
     const runRaw = await fs.readFile(json.path, "utf8");
     const run = JSON.parse(runRaw) as import("@/lib/workflows/runs-types").WorkflowRunFileV1;
 
-    expect(run.status).toBe("error");
-    expect(run.nodes[0].status).toBe("error");
-    expect(String(run.nodes[0].output.error)).toContain("not allowlisted");
+    // Kitchen now enqueues; it does not enforce runtime.exec allowlists.
+    expect(run.status).toBe("running");
+    expect(run.nodes[0].status).toBe("pending");
     expect(toolsInvokeMock).not.toHaveBeenCalled();
   });
 
-  it("allows runtime.exec when bin is allowlisted in workflow meta", async () => {
+  it("preserves runtime.exec node as pending during enqueue", async () => {
     const teamId = "development-team";
     const workflowId = "wf-exec-allow";
 
@@ -172,11 +179,8 @@ describe("/api/teams/workflow-runs POST (execute)", () => {
     const runRaw = await fs.readFile(json.path, "utf8");
     const run = JSON.parse(runRaw) as import("@/lib/workflows/runs-types").WorkflowRunFileV1;
 
-    expect(run.status).toBe("success");
-    expect(run.nodes[0].status).toBe("success");
-    expect(run.nodes[0].output.tool).toBe("runtime.exec");
-
-    // We run exec locally in tests for determinism.
+    expect(run.status).toBe("running");
+    expect(run.nodes[0].status).toBe("pending");
     expect(toolsInvokeMock).not.toHaveBeenCalled();
   });
 });

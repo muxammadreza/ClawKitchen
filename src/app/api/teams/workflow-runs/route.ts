@@ -7,7 +7,7 @@ import { jsonOkRest, parseJsonBody } from "@/lib/api-route-helpers";
 import { handleWorkflowRunsGet } from "@/lib/workflows/api-handlers";
 import { errorMessage } from "@/lib/errors";
 import { toolsInvoke } from "@/lib/gateway";
-import { assertSafeRelativeFileName, getTeamWorkspaceDir, readOpenClawConfig } from "@/lib/paths";
+import { assertSafeRelativeFileName, getTeamWorkspaceDir } from "@/lib/paths";
 import { listWorkflowRuns, readWorkflowRun, writeWorkflowRun } from "@/lib/workflows/runs-storage";
 import type { WorkflowRunFileV1, WorkflowRunNodeResultV1 } from "@/lib/workflows/runs-types";
 import { readWorkflow } from "@/lib/workflows/storage";
@@ -36,6 +36,39 @@ function templateReplace(input: string, vars: Record<string, string>) {
     out = out.replaceAll(`{{${k}}}`, v);
   }
   return out;
+}
+
+
+// v2 runner-only execution: Kitchen never executes workflow tool nodes.
+// These helpers exist only to support approval node UX (best-effort outbound notification metadata).
+async function resolveApprovalChannel({
+  workflow,
+}: {
+  workflow: WorkflowFileV1;
+}): Promise<{ provider: string | null; target: string | null }> {
+  // Best-effort: allow workflow.meta.approvalChannel to declare a delivery target.
+  const meta = workflow.meta && typeof workflow.meta === "object" ? (workflow.meta as Record<string, unknown>) : {};
+  const approvalChannel = typeof meta.approvalChannel === "string" ? meta.approvalChannel.trim() : "";
+  if (!approvalChannel) return { provider: null, target: null };
+
+  // Format: "telegram:-100123456" or just "-100123456".
+  if (approvalChannel.includes(":")) {
+    const [provider, target] = approvalChannel.split(":", 2);
+    return { provider: provider || null, target: target || null };
+  }
+
+  return { provider: "telegram", target: approvalChannel };
+}
+
+async function maybeSendApprovalRequest(_args: {
+  teamId: string;
+  workflow: WorkflowFileV1;
+  run: WorkflowRunFileV1;
+  approvalNodeId: string;
+}) {
+  // Intentionally NO-OP for now.
+  // The runner will handle any external messaging; Kitchen only records state.
+  if (!_args) return;
 }
 
 function asStringArray(v: unknown): string[] {
@@ -312,316 +345,6 @@ async function maybeExecutePendingNodesAfterApproval({
   return { ...run, nodes: nextNodes };
 }
 
-
-async function executeWorkflowRunMvp({
-  teamId,
-  workflow,
-  runId,
-}: {
-  teamId: string;
-  workflow: WorkflowFileV1;
-  runId: string;
-}): Promise<WorkflowRunFileV1> {
-  const wfNodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
-  const t0 = Date.now();
-
-  const approvalIdx = wfNodes.findIndex((n) => n.type === "human_approval");
-  const approvalNodeId = approvalIdx >= 0 ? wfNodes[approvalIdx]?.id : undefined;
-
-  const nodeResults: WorkflowRunNodeResultV1[] = [];
-
-  // Execute nodes sequentially until we hit an approval gate or an error.
-  for (let idx = 0; idx < wfNodes.length; idx++) {
-    const node = wfNodes[idx];
-    const startedAt = new Date(t0 + idx * 25).toISOString();
-    const endedAt = new Date(t0 + idx * 25 + 10).toISOString();
-
-    const beforeApproval = approvalIdx < 0 ? true : idx < approvalIdx;
-    const isApproval = approvalNodeId ? node.id === approvalNodeId : false;
-    const afterApproval = approvalIdx >= 0 && idx > approvalIdx;
-
-    if (afterApproval) {
-      nodeResults.push({ nodeId: node.id, status: "pending", startedAt });
-      continue;
-    }
-
-    if (isApproval) {
-      const runForMessage: WorkflowRunFileV1 = {
-        schema: "clawkitchen.workflow-run.v1",
-        id: runId,
-        workflowId: workflow.id,
-        startedAt: new Date(t0).toISOString(),
-        status: "waiting_for_approval",
-        summary: "Run awaiting approval",
-        nodes: nodeResults.concat([
-          {
-            nodeId: node.id,
-            status: "waiting",
-            startedAt,
-            output: {
-              decision: "pending",
-              options: ["approve", "request_changes", "cancel"],
-            },
-          },
-        ]),
-        approval: {
-          nodeId: node.id,
-          state: "pending",
-          requestedAt: endedAt,
-        },
-      };
-
-      // Best-effort message send. We record outbound metadata below.
-      let outbound: { provider: string; target: string; sentAt?: string; attemptedAt?: string; error?: string } | undefined = undefined;
-      try {
-        const { provider, target } = await resolveApprovalChannel({ workflow, approvalNodeId: node.id });
-        if (target) {
-          try {
-            await maybeSendApprovalRequest({ teamId, workflow, run: runForMessage, approvalNodeId: node.id });
-            outbound = { provider, target, sentAt: nowIso() };
-          } catch (e: unknown) {
-            outbound = { provider, target, error: errorMessage(e), attemptedAt: nowIso() };
-          }
-        }
-      } catch {
-        // ignore
-      }
-
-      nodeResults.push({
-        nodeId: node.id,
-        status: "waiting",
-        startedAt,
-        output: {
-          decision: "pending",
-          options: ["approve", "request_changes", "cancel"],
-        },
-      });
-
-      const run: WorkflowRunFileV1 = {
-        schema: "clawkitchen.workflow-run.v1",
-        id: runId,
-        workflowId: workflow.id,
-        startedAt: new Date(t0).toISOString(),
-        status: "waiting_for_approval",
-        summary: "Run awaiting approval",
-        nodes: nodeResults,
-        approval: {
-          nodeId: node.id,
-          state: "pending",
-          requestedAt: endedAt,
-          outbound,
-        },
-      };
-
-      return run;
-    }
-
-    if (!beforeApproval) {
-      // Defensive: if we somehow reach here after approval, keep pending.
-      nodeResults.push({ nodeId: node.id, status: "pending", startedAt });
-      continue;
-    }
-
-    if (node.type === "tool") {
-      try {
-        const res = await executeToolNode({
-          teamId,
-          workflow,
-          run: { schema: "clawkitchen.workflow-run.v1", id: runId, workflowId: workflow.id, startedAt: new Date(t0).toISOString(), status: "running", nodes: nodeResults } as WorkflowRunFileV1,
-          nodeId: node.id,
-          startedAt,
-          endedAt,
-        });
-        nodeResults.push(res);
-      } catch (e: unknown) {
-        nodeResults.push({ nodeId: node.id, status: "error", startedAt, endedAt, output: { error: errorMessage(e) } });
-        // Mark remaining nodes as skipped.
-        for (let j = idx + 1; j < wfNodes.length; j++) {
-          nodeResults.push({ nodeId: wfNodes[j]!.id, status: "skipped", startedAt: endedAt, endedAt, output: { note: "skipped due to prior error" } });
-        }
-        return {
-          schema: "clawkitchen.workflow-run.v1",
-          id: runId,
-          workflowId: workflow.id,
-          startedAt: new Date(t0).toISOString(),
-          endedAt,
-          status: "error",
-          summary: "Run failed",
-          nodes: nodeResults,
-        };
-      }
-      continue;
-    }
-
-    // Non-tool nodes: persist as no-op successes for now.
-    nodeResults.push({ nodeId: node.id, status: "success", startedAt, endedAt, output: { note: "(no-op: node type not executable yet)" } });
-  }
-
-  return {
-    schema: "clawkitchen.workflow-run.v1",
-    id: runId,
-    workflowId: workflow.id,
-    startedAt: new Date(t0).toISOString(),
-    endedAt: nowIso(),
-    status: "success",
-    summary: "Run completed",
-    nodes: nodeResults,
-  };
-}
-
-function formatApprovalPacketMessage(workflow: WorkflowFileV1, run: WorkflowRunFileV1, approvalNodeId: string): string {
-  const title = `${workflow.name || workflow.id} — Approval needed`;
-  const runLine = `Run: ${run.id}`;
-
-  const approvalNode = Array.isArray(run.nodes) ? run.nodes.find((n) => n.nodeId === approvalNodeId) : undefined;
-  const out = isRecord(approvalNode?.output) ? approvalNode.output : {};
-  const packet = isRecord(out.packet) ? out.packet : null;
-  const platforms = packet && isRecord(packet.platforms) ? (packet.platforms as Record<string, unknown>) : null;
-
-  let body = `${title}\n${runLine}\n\n`;
-
-  if (packet && typeof packet.note === "string" && packet.note.trim()) {
-    body += `${packet.note.trim()}\n\n`;
-  }
-
-  if (platforms) {
-    body += "Drafts:\n";
-    for (const [k, v] of Object.entries(platforms)) {
-      if (!v) continue;
-      const p = isRecord(v) ? v : { value: v };
-      const hook = typeof p.hook === "string" ? p.hook.trim() : "";
-      const text = typeof p.body === "string" ? p.body.trim() : "";
-      const script = typeof p.script === "string" ? p.script.trim() : "";
-      const notes = typeof p.assetNotes === "string" ? p.assetNotes.trim() : "";
-
-      body += `\n— ${k.toUpperCase()} —\n`;
-      if (hook) body += `Hook: ${hook}\n`;
-      if (text) body += `Body: ${text}\n`;
-      if (script) body += `Script: ${script}\n`;
-      if (notes) body += `Notes: ${notes}\n`;
-    }
-    body += "\n";
-  } else {
-    body += "(No structured approval packet found in run file.)\n\n";
-  }
-
-  body += "Reply in ClawKitchen: Approve / Request changes / Cancel.";
-  return body;
-}
-
-function applyTemplate(template: string, vars: Record<string, string>) {
-  let out = template;
-  for (const [k, v] of Object.entries(vars)) {
-    out = out.replaceAll(`{{${k}}}`, v);
-  }
-  return out;
-}
-
-function getApprovalMessageTemplate(workflow: WorkflowFileV1, approvalNodeId: string) {
-  const meta = isRecord(workflow.meta) ? workflow.meta : {};
-  const node = Array.isArray(workflow.nodes) ? workflow.nodes.find((n) => n.id === approvalNodeId) : undefined;
-  const cfg = isRecord(node?.config) ? node?.config : {};
-
-  // Node overrides workflow meta.
-  return String(cfg.messageTemplate ?? cfg.template ?? meta.approvalMessageTemplate ?? "").trim();
-}
-
-function bindingMatchToRef(match: unknown): { id: string; channel: string; target: string } | null {
-  if (!isRecord(match)) return null;
-  const channel = String(match.channel ?? "").trim();
-  if (!channel) return null;
-
-  const accountId = String(match.accountId ?? "").trim();
-  if (accountId) return { id: `${channel}:account:${accountId}`, channel, target: accountId };
-
-  const peer = isRecord(match.peer) ? match.peer : null;
-  const kind = peer ? String(peer.kind ?? "").trim() : "";
-  const peerId = peer ? String(peer.id ?? "").trim() : "";
-  if (kind && peerId) return { id: `${channel}:${kind}:${peerId}`, channel, target: peerId };
-
-  return null;
-}
-
-async function resolveApprovalChannel({
-  workflow,
-  approvalNodeId,
-}: {
-  workflow: WorkflowFileV1;
-  approvalNodeId: string;
-}): Promise<{ provider: string; target: string }> {
-  const meta = isRecord(workflow.meta) ? workflow.meta : {};
-  const wfBindingId = String(meta.approvalBindingId ?? "").trim();
-  const wfProvider = String(meta.approvalProvider ?? "telegram").trim() || "telegram";
-  const wfTarget = String(meta.approvalTarget ?? "").trim();
-
-  const node = Array.isArray(workflow.nodes) ? workflow.nodes.find((n) => n.id === approvalNodeId) : undefined;
-  const nodeCfg = isRecord(node?.config) ? node?.config : {};
-  const nodeBindingId = String(nodeCfg.approvalBindingId ?? "").trim();
-  const nodeProvider = String(nodeCfg.provider ?? "").trim();
-  const nodeTarget = String(nodeCfg.target ?? "").trim();
-
-  const desiredBindingId = nodeBindingId || wfBindingId;
-
-  if (desiredBindingId) {
-    try {
-      const cfg = await readOpenClawConfig();
-      const bindings = Array.isArray(cfg.bindings) ? cfg.bindings : [];
-      for (const b of bindings) {
-        if (!isRecord(b)) continue;
-        const ref = bindingMatchToRef(b.match);
-        if (ref && ref.id === desiredBindingId) return { provider: ref.channel, target: ref.target };
-      }
-    } catch {
-      // fall through to manual fields
-    }
-  }
-
-  // Manual precedence: node overrides workflow meta.
-  const provider = nodeProvider || wfProvider;
-  const target = nodeTarget || wfTarget;
-  return { provider, target };
-}
-
-async function maybeSendApprovalRequest({
-  teamId,
-  workflow,
-  run,
-  approvalNodeId,
-}: {
-  teamId: string;
-  workflow: WorkflowFileV1;
-  run: WorkflowRunFileV1;
-  approvalNodeId: string;
-}) {
-  const { provider, target } = await resolveApprovalChannel({ workflow, approvalNodeId });
-  const messageTemplate = getApprovalMessageTemplate(workflow, approvalNodeId);
-  if (!target) return;
-
-  const base = formatApprovalPacketMessage(workflow, run, approvalNodeId);
-  const message = messageTemplate
-    ? `${applyTemplate(messageTemplate, {
-        workflowName: workflow.name || workflow.id,
-        workflowId: workflow.id,
-        runId: run.id,
-        nodeId: approvalNodeId,
-      })}\n\n${base}`
-    : base;
-
-  // Best-effort: message delivery failures should not block file-first persistence.
-  await toolsInvoke({
-    tool: "message",
-    args: {
-      action: "send",
-      channel: provider,
-      target,
-      message,
-    },
-  });
-
-  // Writeback of delivery info happens in the caller (so we can record errors too).
-  // eslint-disable-next-line sonarjs/void-use -- intentional no-op to satisfy param
-  void teamId;
-}
 
 export async function GET(req: Request) {
   return handleWorkflowRunsGet(req, readWorkflowRun, listWorkflowRuns);
@@ -910,7 +633,7 @@ export async function POST(req: Request) {
             if (approvalNodeId) {
               // Resolve the channel we *intend* to send to so we can record outbound metadata,
               // even though delivery is best-effort.
-              const { provider, target } = await resolveApprovalChannel({ workflow: wf, approvalNodeId });
+              const { provider, target } = await resolveApprovalChannel({ workflow: wf });
 
               if (target) {
                 try {
@@ -931,8 +654,115 @@ export async function POST(req: Request) {
             return baseRun satisfies WorkflowRunFileV1;
           })()
         : await (async () => {
+
+            // v2: enqueue for the dedicated workflow runner (cron-driven) instead of executing in Kitchen.
+            const modeNorm = mode || "enqueue";
+            if (!["execute", "enqueue", "sample"].includes(modeNorm)) {
+              throw new Error(`Unsupported mode: ${modeNorm}`);
+            }
+
             const wf = (await readWorkflow(teamId, workflowId)).workflow;
-            return executeWorkflowRunMvp({ teamId, workflow: wf, runId });
+
+            const teamDir = await getTeamWorkspaceDir(teamId);
+            const runsDir = path.join(teamDir, "shared-context", "workflow-runs");
+            await fs.mkdir(runsDir, { recursive: true });
+
+            const triggerKind = modeNorm === "sample" ? "sample" : "manual";
+
+            // Derive initial lane from the first node that declares one.
+            const firstLane = (() => {
+              const n = Array.isArray(wf.nodes)
+                ? wf.nodes.find((nn) => nn && typeof nn === "object" && nn.config && typeof nn.config === "object" && "lane" in nn.config)
+                : null;
+              const raw = n && n.config && typeof n.config === "object" ? String((n.config as Record<string, unknown>).lane ?? "backlog") : "backlog";
+              return ["backlog", "in-progress", "testing", "done"].includes(raw) ? raw : "backlog";
+            })();
+
+            // Compute next ticket number by scanning existing work/ lanes.
+            const workRoot = path.join(teamDir, "work");
+            let maxNum = 0;
+            const stageDirs = [
+              path.join(workRoot, "backlog"),
+              path.join(workRoot, "in-progress"),
+              path.join(workRoot, "testing"),
+              path.join(workRoot, "done"),
+            ];
+            for (const d of stageDirs) {
+              try {
+                const entries = await fs.readdir(d);
+                for (const f of entries) {
+                  const m = String(f).match(/^(\d{4})-/);
+                  if (m) maxNum = Math.max(maxNum, Number(m[1]));
+                }
+              } catch {
+                // ignore missing dirs
+              }
+            }
+
+            const ticketNum = String(maxNum + 1).padStart(4, "0");
+            const slug = `workflow-run-${String(wf.id ?? workflowId).replace(/[^a-z0-9-]+/gi, "-").toLowerCase()}`;
+            const ticketFile = `${ticketNum}-${slug}.md`;
+            const ticketRel = path.join("work", firstLane, ticketFile);
+            const ticketAbs = path.join(teamDir, ticketRel);
+            await fs.mkdir(path.dirname(ticketAbs), { recursive: true });
+
+            const workflowFile = `${workflowId}.workflow.json`;
+            const runLogPath = path.join(runsDir, `${runId}.run.json`);
+            const createdAt = nowIso();
+
+            const ticketMd = [
+              `# ${ticketNum} — Workflow run: ${wf.name ?? wf.id ?? workflowId}`,
+              ``,
+              `Owner: lead`,
+              `Status: ${firstLane}`,
+              ``,
+              `## Run`,
+              `- workflow: shared-context/workflows/${workflowFile}`,
+              `- run file: ${path.relative(teamDir, runLogPath)}`,
+              `- trigger: ${triggerKind}`,
+              `- runId: ${runId}`,
+              ``,
+              `## Notes`,
+              `- Enqueued by: ClawKitchen (/api/teams/workflow-runs mode=${modeNorm})`,
+              ``,
+            ].join("\n");
+
+            // Runner-friendly run log format (ClawRecipes workflow-runner).
+            const runLog = {
+              runId,
+              createdAt,
+              updatedAt: createdAt,
+              teamId,
+              workflow: { file: workflowFile, id: wf.id ?? null, name: wf.name ?? null },
+              ticket: { file: ticketRel, number: ticketNum, lane: firstLane },
+              trigger: { kind: triggerKind },
+              status: "queued",
+              priority: 0,
+              claimedBy: null,
+              claimExpiresAt: null,
+              nextNodeIndex: 0,
+              events: [{ ts: createdAt, type: "run.enqueued", lane: firstLane }],
+              nodeResults: [],
+            };
+
+            await Promise.all([
+              fs.writeFile(ticketAbs, ticketMd, "utf8"),
+              fs.writeFile(runLogPath, JSON.stringify(runLog, null, 2) + "\n", "utf8"),
+            ]);
+
+            // Return a lightweight Kitchen-schema run so the UI can immediately navigate to it.
+            return {
+              schema: "clawkitchen.workflow-run.v1",
+              id: runId,
+              workflowId,
+              teamId,
+              startedAt: createdAt,
+              status: "running",
+              summary: "Queued for workflow runner",
+              nodes: Array.isArray(wf.nodes)
+                ? wf.nodes.map((n) => ({ nodeId: String(n.id), status: "pending" as const }))
+                : [],
+            } satisfies WorkflowRunFileV1;
           })();
 
     return jsonOkRest({ ...(await writeWorkflowRun(teamId, workflowId, run)), runId });
