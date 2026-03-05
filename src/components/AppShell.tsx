@@ -214,6 +214,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ),
     },
     {
+      href: `/channels`,
+      label: "Channels",
+      icon: (
+        <Icon>
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 6h16" />
+            <path d="M4 12h16" />
+            <path d="M4 18h16" />
+            <path d="M7 9h0" />
+          </svg>
+        </Icon>
+      ),
+    },
+    {
       href: navHref(`/goals`),
       label: "Goals",
       icon: (
