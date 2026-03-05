@@ -108,8 +108,33 @@ export async function writeWorkflowRun(teamId: string, workflowId: string, run: 
   const dir = await getWorkflowRunsDir(teamId, wfId);
   await fs.mkdir(dir, { recursive: true });
 
-  // New layout: write to shared-context/workflow-runs/<runId>.run.json
-  const p = path.join(dir, workflowRunFileName(rId));
+  // Default layout: write to shared-context/workflow-runs/<runId>.run.json
+  //
+  // IMPORTANT: that filename may already be occupied by a runner-owned run log (different schema).
+  // In that case, keep the runner log intact and write the Kitchen run file to the legacy
+  // per-workflow directory shared-context/workflow-runs/<workflowId>/<runId>.run.json.
+  const p0 = path.join(dir, workflowRunFileName(rId));
+
+  let p = p0;
+  try {
+    const raw = await fs.readFile(p0, "utf8");
+    const existing = JSON.parse(raw) as unknown;
+    const isRunnerLog =
+      Boolean(existing) &&
+      typeof existing === "object" &&
+      !Array.isArray(existing) &&
+      "runId" in (existing as Record<string, unknown>) &&
+      !("schema" in (existing as Record<string, unknown>));
+
+    if (isRunnerLog && LEGACY_PER_WORKFLOW_LAYOUT) {
+      const legacyDir = path.join(dir, wfId);
+      await fs.mkdir(legacyDir, { recursive: true });
+      p = path.join(legacyDir, workflowRunFileName(rId));
+    }
+  } catch {
+    // ignore read/parse errors; we'll write to p0
+  }
+
   const toWrite: WorkflowRunFileV1 = {
     ...run,
     schema: "clawkitchen.workflow-run.v1",
