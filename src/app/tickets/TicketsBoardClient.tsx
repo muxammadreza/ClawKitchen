@@ -182,7 +182,11 @@ export function TicketsBoardClient({
                   className="rounded-[var(--ck-radius-sm)] border border-[color:var(--ck-border-subtle)] bg-[color:var(--ck-bg-glass-strong)] p-3"
                 >
                   <a
-                    href={`${basePath}/${encodeURIComponent(t.id)}`}
+                    href={(() => {
+                      const base = `${basePath}/${encodeURIComponent(t.id)}`;
+                      if (!selectedTeamId) return base;
+                      return `${base}?team=${encodeURIComponent(selectedTeamId)}`;
+                    })()}
                     className="block text-sm font-medium text-[color:var(--ck-text-primary)] hover:underline"
                   >
                     {String(t.number).padStart(4, "0")} — {t.title}
