@@ -216,7 +216,7 @@ export default function WorkflowsClient({ teamId }: { teamId: string }) {
             onClick={() => void onAddTemplate("marketing-cadence-v1")}
             className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-[color:var(--ck-text-primary)] hover:bg-white/10"
           >
-            Add Marketing Cadence template
+            Add example template
           </button>
 
           <button
