@@ -6,11 +6,16 @@ export const dynamic = "force-dynamic";
 
 export default async function TicketDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ticket: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { ticket } = await params;
-  const teamId = "development-team";
+  const sp = await searchParams;
+  const team = typeof sp.team === "string" ? sp.team.trim() : "";
+  const teamId = team || "development-team";
+
   const data = await getTicketMarkdown(teamId, ticket);
 
   if (!data) {
