@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 import type { WorkflowFileV1 } from "@/lib/workflows/types";
 import { validateWorkflowFileV1 } from "@/lib/workflows/validate";
 
@@ -69,6 +70,10 @@ export default function WorkflowsEditorClient({
   const [cronLoading, setCronLoading] = useState(false);
   const [cronError, setCronError] = useState<string>("");
   const [agentHasCron, setAgentHasCron] = useState<Record<string, boolean>>({});
+
+  const [installCronOpen, setInstallCronOpen] = useState(false);
+  const [installCronBusy, setInstallCronBusy] = useState(false);
+  const [installCronError, setInstallCronError] = useState<string>("");
 
   const [newNodeId, setNewNodeId] = useState("");
   const [newNodeName, setNewNodeName] = useState("");
@@ -191,35 +196,37 @@ export default function WorkflowsEditorClient({
     })();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      // Preflight helper: determine whether each agent has any cron job installed/enabled.
-      // (Used to warn/block enqueue when the assigned worker has no cron heartbeat.)
-      setCronError("");
-      setCronLoading(true);
-      try {
-        const res = await fetch("/api/cron/jobs", { cache: "no-store" });
-        const json = (await res.json()) as { ok?: boolean; error?: string; jobs?: unknown[] };
-        if (!res.ok || json.ok === false) throw new Error(json.error || "Failed to load cron jobs");
-        const jobs = Array.isArray(json.jobs) ? json.jobs : [];
+  const refreshCronMap = useCallback(async () => {
+    // Preflight helper: determine whether each agent has any cron job installed/enabled.
+    // (Used to warn/block enqueue when the assigned worker has no cron heartbeat.)
+    setCronError("");
+    setCronLoading(true);
+    try {
+      const res = await fetch("/api/cron/jobs", { cache: "no-store" });
+      const json = (await res.json()) as { ok?: boolean; error?: string; jobs?: unknown[] };
+      if (!res.ok || json.ok === false) throw new Error(json.error || "Failed to load cron jobs");
+      const jobs = Array.isArray(json.jobs) ? json.jobs : [];
 
-        const map: Record<string, boolean> = {};
-        for (const j of jobs) {
-          const job = j as { enabled?: unknown; scope?: { kind?: unknown; id?: unknown } };
-          if (job && Boolean(job.enabled) && job.scope && String(job.scope.kind) === "agent") {
-            const id = String(job.scope.id ?? "").trim();
-            if (id) map[id] = true;
-          }
+      const map: Record<string, boolean> = {};
+      for (const j of jobs) {
+        const job = j as { enabled?: unknown; scope?: { kind?: unknown; id?: unknown } };
+        if (job && Boolean(job.enabled) && job.scope && String(job.scope.kind) === "agent") {
+          const id = String(job.scope.id ?? "").trim();
+          if (id) map[id] = true;
         }
-        setAgentHasCron(map);
-      } catch (e: unknown) {
-        setCronError(e instanceof Error ? e.message : String(e));
-        setAgentHasCron({});
-      } finally {
-        setCronLoading(false);
       }
-    })();
+      setAgentHasCron(map);
+    } catch (e: unknown) {
+      setCronError(e instanceof Error ? e.message : String(e));
+      setAgentHasCron({});
+    } finally {
+      setCronLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshCronMap();
+  }, [refreshCronMap]);
 
   const parsed = useMemo(() => {
     if (status.kind !== "ready") return { wf: null as WorkflowFileV1 | null, err: "" };
@@ -1559,9 +1566,70 @@ export default function WorkflowsEditorClient({
                       </div>
                     ) : runPreflight.agentIdsMissingCron.length ? (
                       <div className="mt-2 rounded-[var(--ck-radius-sm)] border border-amber-400/30 bg-amber-500/10 p-2 text-xs text-amber-50">
-                        Cron not set up for: {runPreflight.agentIdsMissingCron.join(", ")}
+                        <div>Cron not set up for: {runPreflight.agentIdsMissingCron.join(", ")}</div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInstallCronError("");
+                              setInstallCronOpen(true);
+                            }}
+                            className="rounded-[var(--ck-radius-sm)] border border-amber-300/30 bg-amber-500/10 px-2 py-1 text-[10px] font-medium text-amber-50 hover:bg-amber-500/15"
+                          >
+                            Install worker cron(s)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void refreshCronMap()}
+                            className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium text-[color:var(--ck-text-primary)] hover:bg-white/10"
+                          >
+                            Re-check
+                          </button>
+                        </div>
                       </div>
                     ) : null}
+
+                    <ConfirmationModal
+                      open={installCronOpen}
+                      title="Install worker cron jobs?"
+                      busy={installCronBusy}
+                      error={installCronError || undefined}
+                      confirmLabel="Install"
+                      onClose={() => {
+                        if (installCronBusy) return;
+                        setInstallCronOpen(false);
+                      }}
+                      onConfirm={async () => {
+                        setInstallCronBusy(true);
+                        setInstallCronError("");
+                        try {
+                          const res = await fetch("/api/cron/worker", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ action: "reconcile", teamId }),
+                          });
+                          const json = (await res.json()) as { ok?: boolean; error?: string };
+                          if (!res.ok || json.ok === false) throw new Error(json.error || "Failed to install worker crons");
+
+                          await refreshCronMap();
+                          setInstallCronOpen(false);
+                        } catch (e: unknown) {
+                          setInstallCronError(e instanceof Error ? e.message : String(e));
+                        } finally {
+                          setInstallCronBusy(false);
+                        }
+                      }}
+                    >
+                      <div className="text-sm text-[color:var(--ck-text-secondary)]">
+                        Kitchen will install (or enable) worker cron jobs for the following agents so this workflow can drain:
+                        <div className="mt-2 rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/25 p-2 font-mono text-[11px] text-[color:var(--ck-text-primary)]">
+                          {runPreflight.agentIdsMissingCron.join(", ")}
+                        </div>
+                        <div className="mt-2 text-xs text-[color:var(--ck-text-tertiary)]">
+                          Cron cadence: 1 minute. The worker runs: <span className="font-mono">openclaw recipes workflows worker-tick</span>.
+                        </div>
+                      </div>
+                    </ConfirmationModal>
 
                     {workflowRunsError ? (
                       <div className="mt-2 rounded-[var(--ck-radius-sm)] border border-red-400/30 bg-red-500/10 p-2 text-xs text-red-100">
