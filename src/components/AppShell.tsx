@@ -87,7 +87,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   function syncTeamToCurrentUrl(teamId: string) {
-    if (!teamId) return;
     // Team editor routes already encode team in the path.
     if (pathname.startsWith("/teams/")) return;
     // Only enforce on pages that support it.
@@ -95,6 +94,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     try {
       const url = new URL(window.location.href);
+
+      if (!teamId) {
+        if (!url.searchParams.has("team")) return;
+        url.searchParams.delete("team");
+        const qs = url.searchParams.toString();
+        router.replace(url.pathname + (qs ? `?${qs}` : ""));
+        return;
+      }
+
       if ((url.searchParams.get("team") ?? "").trim() === teamId) return;
       url.searchParams.set("team", teamId);
       router.replace(url.pathname + "?" + url.searchParams.toString());
@@ -103,9 +111,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // If a team is selected, ensure the current URL includes ?team=... (supported pages only).
+  // Keep URL in sync with the selected team on pages that support team filtering.
   useEffect(() => {
-    if (!selectedTeamId) return;
     if (typeof window === "undefined") return;
     syncTeamToCurrentUrl(selectedTeamId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync uses window.location
@@ -330,7 +337,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     const id = (e.target.value || "").trim();
                     setStoredTeamId(id);
                     try {
-                      localStorage.setItem("ck-selected-team", id);
+                      if (id) localStorage.setItem("ck-selected-team", id);
+                      else localStorage.removeItem("ck-selected-team");
                     } catch {
                       // ignore
                     }
@@ -339,7 +347,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   }}
                   className="w-full rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/25 px-2 py-2 text-sm text-[color:var(--ck-text-primary)]"
                 >
-                  <option value="">(select)</option>
+                  <option value="">All teams</option>
                   {teamIds.map((id) => (
                     <option key={id} value={id}>
                       {id}
