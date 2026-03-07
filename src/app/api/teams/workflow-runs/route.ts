@@ -746,8 +746,40 @@ export async function POST(req: Request) {
                 );
               }
 
-              const runnerRes = await runOpenClaw(["recipes", "workflows", "runner-once", "--team-id", teamId]);
-              if (!runnerRes.ok) throw new Error(runnerRes.stderr || runnerRes.stdout || "Failed to run runner-once");
+              // Kick the runner. If the team queue already contains older runs, runner-once may claim
+              // the oldest run first. For "run_now" semantics we want to ensure the *newly enqueued*
+              // run gets claimed before we tick workers.
+              for (let attempt = 0; attempt < 4; attempt++) {
+                const runnerRes = await runOpenClaw(["recipes", "workflows", "runner-once", "--team-id", teamId]);
+                if (!runnerRes.ok) throw new Error(runnerRes.stderr || runnerRes.stdout || "Failed to run runner-once");
+
+                try {
+                  const { run } = await readWorkflowRun(teamId, workflowId, enqRunId);
+                  const statusAny = (run as unknown as { status?: unknown }).status;
+                  if (statusAny && String(statusAny) != "queued") break;
+                } catch {
+                  // If we can't read the run yet, fall through to retry after a short delay.
+                }
+
+                // Give the filesystem a moment to settle (enqueue/runner writes are file-based).
+                await new Promise((r) => setTimeout(r, 250));
+              }
+
+              // After retries, ensure our run is no longer queued.
+              try {
+                const { run } = await readWorkflowRun(teamId, workflowId, enqRunId);
+                const statusAny = (run as unknown as { status?: unknown }).status;
+                if (String(statusAny) === "queued") {
+                  throw new Error(
+                    `Run now enqueued runId=${enqRunId}, but runner did not claim it yet (queue may contain older runs). ` +
+                      `Please retry, or run: openclaw recipes workflows runner-once --team-id ${teamId}`
+                  );
+                }
+              } catch (e: unknown) {
+                // If read fails, still proceed; worker-tick will be a no-op until runner claims.
+                // But surface a helpful error if the read error is explicit.
+                if (e instanceof Error && e.message.startsWith("Run now enqueued")) throw e;
+              }
 
               for (const agentId of uniq) {
                 const workerRes = await runOpenClaw([
