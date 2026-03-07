@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentListItem } from "@/lib/agents";
 
 function inferTeamIdFromWorkspace(workspace: string | undefined) {
@@ -37,6 +37,24 @@ export default function HomeClient({
   }, [agents]);
 
   const [teamFilter, setTeamFilter] = useState<string>("all");
+  const [lockedToSelectedTeam, setLockedToSelectedTeam] = useState(false);
+
+  // Respect the global team selection (stored by AppShell in localStorage).
+  // If a team is selected, the Agents/Home page should only show that team.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const selected = (localStorage.getItem("ck-selected-team") || "").trim();
+      if (selected) {
+        setTeamFilter(selected);
+        setLockedToSelectedTeam(true);
+      } else {
+        setLockedToSelectedTeam(false);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, AgentListItem[]>();
@@ -139,10 +157,14 @@ export default function HomeClient({
 
       {teamIds.length ? (
         <div className="mt-6">
-          <label className="block text-xs font-medium text-[color:var(--ck-text-secondary)]">Team filter</label>
+          <label className="block text-xs font-medium text-[color:var(--ck-text-secondary)]">Team</label>
           <select
-            className="mt-2 w-full rounded-[var(--ck-radius-sm)] border border-[color:var(--ck-border-subtle)] bg-[color:var(--ck-bg-glass)] px-3 py-2 text-sm text-[color:var(--ck-text-primary)] shadow-[var(--ck-shadow-1)] sm:w-[280px]"
+            className={
+              "mt-2 w-full rounded-[var(--ck-radius-sm)] border border-[color:var(--ck-border-subtle)] bg-[color:var(--ck-bg-glass)] px-3 py-2 text-sm text-[color:var(--ck-text-primary)] shadow-[var(--ck-shadow-1)] sm:w-[280px]" +
+              (lockedToSelectedTeam ? " cursor-not-allowed opacity-60" : "")
+            }
             value={teamFilter}
+            disabled={lockedToSelectedTeam}
             onChange={(e) => setTeamFilter(e.target.value)}
           >
             <option value="all">All teams</option>
@@ -156,6 +178,11 @@ export default function HomeClient({
             })}
             <option value="personal">Personal / Unassigned</option>
           </select>
+          {lockedToSelectedTeam ? (
+            <div className="mt-2 text-xs text-[color:var(--ck-text-tertiary)]">
+              Showing agents for the globally selected team. Clear the Team selector in the sidebar to view all teams.
+            </div>
+          ) : null}
         </div>
       ) : null}
 
