@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { AgentListItem } from "@/lib/agents";
 
 function inferTeamIdFromWorkspace(workspace: string | undefined) {
@@ -36,25 +36,24 @@ export default function HomeClient({
     return Array.from(s).sort();
   }, [agents]);
 
-  const [teamFilter, setTeamFilter] = useState<string>("all");
-  const [lockedToSelectedTeam, setLockedToSelectedTeam] = useState(false);
-
-  // Respect the global team selection (stored by AppShell in localStorage).
-  // If a team is selected, the Agents/Home page should only show that team.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const [teamFilter, setTeamFilter] = useState<string>(() => {
+    if (typeof window === "undefined") return "all";
     try {
       const selected = (localStorage.getItem("ck-selected-team") || "").trim();
-      if (selected) {
-        setTeamFilter(selected);
-        setLockedToSelectedTeam(true);
-      } else {
-        setLockedToSelectedTeam(false);
-      }
+      return selected || "all";
     } catch {
-      // ignore
+      return "all";
     }
-  }, []);
+  });
+
+  const [lockedToSelectedTeam, setLockedToSelectedTeam] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return Boolean((localStorage.getItem("ck-selected-team") || "").trim());
+    } catch {
+      return false;
+    }
+  });
 
   const grouped = useMemo(() => {
     const groups = new Map<string, AgentListItem[]>();
