@@ -31,6 +31,9 @@ jobs:
 
       - run: npm run lint && npm run coverage
 
+      - name: Build (Next.js)
+        run: npm run build
+
       - name: Check for code duplication (jscpd)
         run: npm run dup:check
 
