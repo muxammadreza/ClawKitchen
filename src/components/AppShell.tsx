@@ -188,7 +188,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const globalNav = [
     {
       href: `/`,
-      label: "Home",
+      label: "Agents",
       icon: (
         <Icon>
           <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
