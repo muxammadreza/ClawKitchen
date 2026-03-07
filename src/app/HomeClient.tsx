@@ -46,14 +46,14 @@ export default function HomeClient({
     }
   });
 
-  const [lockedToSelectedTeam, setLockedToSelectedTeam] = useState<boolean>(() => {
+  const lockedToSelectedTeam = useMemo(() => {
     if (typeof window === "undefined") return false;
     try {
       return Boolean((localStorage.getItem("ck-selected-team") || "").trim());
     } catch {
       return false;
     }
-  });
+  }, []);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, AgentListItem[]>();
