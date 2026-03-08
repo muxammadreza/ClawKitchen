@@ -1497,7 +1497,7 @@ export default function WorkflowsEditorClient({
                                 body: JSON.stringify({ teamId, workflowId: wfId, mode: "enqueue" }),
                               });
                               const json = await res.json();
-                              if (!res.ok || !json.ok) throw new Error(json.error || "Failed to queue run");
+                              if (!res.ok || !json.ok) throw new Error(json.error || "Failed to enqueue run");
 
                               const listRes = await fetch(
                                 `/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(wfId)}`,
