@@ -14,6 +14,10 @@ import type { WorkflowRunFileV1, WorkflowRunNodeResultV1 } from "@/lib/workflows
 import { readWorkflow } from "@/lib/workflows/storage";
 import type { WorkflowFileV1 } from "@/lib/workflows/types";
 
+async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, Math.max(0, ms)));
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -746,8 +750,55 @@ export async function POST(req: Request) {
                 );
               }
 
-              const runnerRes = await runOpenClaw(["recipes", "workflows", "runner-once", "--team-id", teamId]);
-              if (!runnerRes.ok) throw new Error(runnerRes.stderr || runnerRes.stdout || "Failed to run runner-once");
+              // IMPORTANT: avoid a common race/ordering failure:
+              // - runner-once may claim an older queued run (or claim none due to timing)
+              // - if we tick workers immediately, they may process work for the wrong run
+              // So: retry runner-once briefly until *this* enqueued run is no longer queued,
+              // then tick workers.
+
+              const teamDir = await getTeamWorkspaceDir(teamId);
+              const canonicalRunPath = path.join(teamDir, "shared-context", "workflow-runs", enqRunId, "run.json");
+
+              const runnerAttempts = 6;
+              const runnerDelayMs = 250;
+              let lastRunnerStdout = "";
+              let lastRunnerStderr = "";
+
+              for (let i = 0; i < runnerAttempts; i++) {
+                const runnerRes = await runOpenClaw(["recipes", "workflows", "runner-once", "--team-id", teamId]);
+                lastRunnerStdout = String(runnerRes.stdout ?? "");
+                lastRunnerStderr = String(runnerRes.stderr ?? "");
+                if (!runnerRes.ok) {
+                  throw new Error(lastRunnerStderr || lastRunnerStdout || "Failed to run runner-once");
+                }
+
+                try {
+                  const raw = await fs.readFile(canonicalRunPath, "utf8");
+                  const j = JSON.parse(raw) as { status?: unknown };
+                  const st = String(j.status ?? "").trim();
+                  if (st && st !== "queued") break;
+                } catch {
+                  // ignore (file may not be visible yet); retry after delay
+                }
+
+                await sleep(runnerDelayMs);
+              }
+
+              // Re-check run status; if still queued, return a hard error (no silent success).
+              try {
+                const raw = await fs.readFile(canonicalRunPath, "utf8");
+                const j = JSON.parse(raw) as { status?: unknown };
+                const st = String(j.status ?? "").trim();
+                if (!st || st === "queued") {
+                  throw new Error(
+                    `Run now failed to claim run ${enqRunId}. ` +
+                      `runner-once did not advance it out of queued state. ` +
+                      `Last runner stdout: ${lastRunnerStdout || "(empty)"}; stderr: ${lastRunnerStderr || "(empty)"}`
+                  );
+                }
+              } catch (e: unknown) {
+                throw new Error(errorMessage(e));
+              }
 
               for (const agentId of uniq) {
                 const workerRes = await runOpenClaw([
