@@ -117,6 +117,12 @@ export default function HomeClient({
             Tickets
           </Link>
           <Link
+            href="/mission-control"
+            className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
+          >
+            Mission Control
+          </Link>
+          <Link
             href="/channels"
             className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
           >
