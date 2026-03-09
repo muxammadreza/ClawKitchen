@@ -108,7 +108,7 @@ export default async function MissionControlPage() {
                         </Link>
                       </td>
                       <td className="border-b border-white/5 px-2 py-2 text-xs text-[color:var(--ck-text-secondary)]">
-                        —
+                        {typeof r.tokenUsage?.totalTokens === "number" ? r.tokenUsage.totalTokens.toLocaleString() : "—"}
                       </td>
                       <td className="border-b border-white/5 px-2 py-2 text-xs text-[color:var(--ck-text-secondary)]">
                         —
