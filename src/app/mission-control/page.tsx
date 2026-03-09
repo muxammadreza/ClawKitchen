@@ -31,6 +31,10 @@ export default async function MissionControlPage() {
 
   const rows = await listLatestRunsAllTeams({ limit: 25, sinceHours: 24 });
 
+  const totalTokens = rows.reduce((acc, r) => acc + (r.tokenUsage?.totalTokens ?? 0), 0);
+  const costRows = rows.filter((r) => typeof r.costUsd === "number" && Number.isFinite(r.costUsd));
+  const totalCostUsd = costRows.reduce((acc, r) => acc + (r.costUsd ?? 0), 0);
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -51,10 +55,30 @@ export default async function MissionControlPage() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="ck-glass p-4">
+          <div className="text-xs uppercase tracking-wide text-[color:var(--ck-text-tertiary)]">last 24h (visible)</div>
+          <div className="mt-1 text-2xl font-semibold text-[color:var(--ck-text-primary)]">{rows.length}</div>
+          <div className="mt-1 text-xs text-[color:var(--ck-text-tertiary)]">runs (latest 25 shown)</div>
+        </div>
+
+        <div className="ck-glass p-4">
+          <div className="text-xs uppercase tracking-wide text-[color:var(--ck-text-tertiary)]">tokens (sum of shown)</div>
+          <div className="mt-1 text-2xl font-semibold text-[color:var(--ck-text-primary)]">{totalTokens ? totalTokens.toLocaleString() : "—"}</div>
+          <div className="mt-1 text-xs text-[color:var(--ck-text-tertiary)]">best-effort (missing data shown as 0)</div>
+        </div>
+
+        <div className="ck-glass p-4">
+          <div className="text-xs uppercase tracking-wide text-[color:var(--ck-text-tertiary)]">cost estimate (sum of shown)</div>
+          <div className="mt-1 text-2xl font-semibold text-[color:var(--ck-text-primary)]">{costRows.length ? `$${totalCostUsd.toFixed(4)}` : "—"}</div>
+          <div className="mt-1 text-xs text-[color:var(--ck-text-tertiary)]">set CK_TOKEN_PRICING_JSON to tune rates</div>
+        </div>
+      </div>
+
       <div className="ck-glass w-full p-4">
         <div className="flex items-center justify-between">
           <div className="text-sm font-semibold text-[color:var(--ck-text-primary)]">Latest Runs</div>
-          <div className="text-xs text-[color:var(--ck-text-tertiary)]">Tokens / cost surfaces: coming next</div>
+          <div className="text-xs text-[color:var(--ck-text-tertiary)]">Tokens + cost are best-effort estimates.</div>
         </div>
 
         <div className="mt-3 overflow-x-auto">
@@ -111,7 +135,7 @@ export default async function MissionControlPage() {
                         {typeof r.tokenUsage?.totalTokens === "number" ? r.tokenUsage.totalTokens.toLocaleString() : "—"}
                       </td>
                       <td className="border-b border-white/5 px-2 py-2 text-xs text-[color:var(--ck-text-secondary)]">
-                        —
+                        {typeof r.costUsd === "number" && Number.isFinite(r.costUsd) ? `$${r.costUsd.toFixed(4)}` : "—"}
                       </td>
                     </tr>
                   );
