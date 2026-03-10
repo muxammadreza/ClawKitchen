@@ -8,7 +8,7 @@ import { handleWorkflowRunsGet } from "@/lib/workflows/api-handlers";
 import { errorMessage } from "@/lib/errors";
 import { toolsInvoke } from "@/lib/gateway";
 import { runOpenClaw } from "@/lib/openclaw";
-import { assertSafeRelativeFileName, getTeamWorkspaceDir } from "@/lib/paths";
+import { assertSafeRelativeFileName } from "@/lib/paths";
 import { listWorkflowRuns, readWorkflowRun, writeWorkflowRun } from "@/lib/workflows/runs-storage";
 import type { WorkflowRunFileV1, WorkflowRunNodeResultV1 } from "@/lib/workflows/runs-types";
 import { readWorkflow } from "@/lib/workflows/storage";
@@ -24,7 +24,6 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 async function appendTeamFile(teamId: string, relPath: string, content: string) {
   const safe = assertSafeRelativeFileName(relPath);
-  const teamDir = await getTeamWorkspaceDir(teamId);
   const full = path.join(teamDir, safe);
   await fs.mkdir(path.dirname(full), { recursive: true });
   await fs.appendFile(full, content, "utf8");
@@ -224,7 +223,6 @@ async function executeToolNode({
     const workdirRel = typeof args.cwd === "string" ? args.cwd : typeof args.workdir === "string" ? args.workdir : "";
     let workdir: string | undefined;
     if (workdirRel) {
-      const teamDir = await getTeamWorkspaceDir(teamId);
       const resolved = path.resolve(teamDir, workdirRel);
       if (!resolved.startsWith(teamDir + path.sep) && resolved !== teamDir) {
         throw new Error("runtime.exec cwd must be within the team workspace");
@@ -827,7 +825,10 @@ export async function POST(req: Request) {
     // So: return the canonical runId + expected path and let the UI follow up by
     // reading from the canonical location.
     if (modeNorm === "enqueue" || modeNorm === "run_now") {
-      const canonicalRunId = String((run.meta as Record<string, unknown> | undefined)?.canonicalRunId ?? run.id);
+      // Explicitly return the CLI-generated (canonical) runId so callers can look up:
+      //   <teamDir>/shared-context/workflow-runs/<runId>/run.json
+      const canonicalRunId = String((run.meta as Record<string, unknown> | undefined)?.canonicalRunId ?? run.id).trim();
+
       return jsonOkRest({
         ok: true,
         runId: canonicalRunId,
