@@ -65,4 +65,66 @@ describe("/api/teams/workflow-runs POST", () => {
     expect(json.runId).toBe("2026-03-09t14-46-37-557z-27027444");
     expect(json.path).toBe("shared-context/workflow-runs/2026-03-09t14-46-37-557z-27027444/run.json");
   });
+
+  it("returns the canonical CLI runId + canonical run.json path for run_now", async () => {
+    readWorkflowMock.mockResolvedValue({
+      workflow: {
+        id: "tool-exec-demo",
+        name: "Tool Exec Demo",
+        nodes: [
+          { id: "start", type: "start" },
+          { id: "n1", type: "tool", config: { agentId: "dev-agent" } },
+          { id: "end", type: "end" },
+        ],
+      },
+    });
+
+    runOpenClawMock.mockImplementation(async (args: string[]) => {
+      const cmd = args.join(" ");
+      if (cmd.startsWith("recipes workflows run")) {
+        return {
+          ok: true,
+          stdout: JSON.stringify({ ok: true, runId: "2026-03-10t02-15-00-000z-abc12345" }),
+          stderr: "",
+        };
+      }
+      if (cmd.startsWith("agents list")) {
+        return {
+          ok: true,
+          stdout: JSON.stringify([{ id: "dev-agent" }]),
+          stderr: "",
+        };
+      }
+      if (cmd.startsWith("recipes workflows runner-once")) {
+        return { ok: true, stdout: "", stderr: "" };
+      }
+      if (cmd.startsWith("recipes workflows worker-tick")) {
+        return { ok: true, stdout: "", stderr: "" };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+
+    const { POST } = await import("./route");
+    const routeMod = await import("@/lib/workflows/runs-storage");
+    const readWorkflowRunSpy = vi.spyOn(routeMod, "readWorkflowRun").mockResolvedValue({
+      run: { status: "running" } as unknown as Awaited<ReturnType<typeof routeMod.readWorkflowRun>>["run"],
+      path: "shared-context/workflow-runs/2026-03-10t02-15-00-000z-abc12345/run.json",
+    });
+
+    const res = await POST(
+      new Request("http://localhost/api/teams/workflow-runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ teamId: "development-team", workflowId: "tool-exec-demo", mode: "run_now" }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; runId: string; path: string };
+    expect(json.ok).toBe(true);
+    expect(json.runId).toBe("2026-03-10t02-15-00-000z-abc12345");
+    expect(json.path).toBe("shared-context/workflow-runs/2026-03-10t02-15-00-000z-abc12345/run.json");
+
+    readWorkflowRunSpy.mockRestore();
+  });
 });
