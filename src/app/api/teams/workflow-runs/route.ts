@@ -662,7 +662,7 @@ export async function POST(req: Request) {
         : await (async () => {
 
             // v2: delegate to CLI for enqueue/run-now (Kitchen should not author run artifacts).
-            const modeNorm = mode || "enqueue";
+            const modeNorm = (mode || "enqueue").toLowerCase();
             if (!["execute", "enqueue", "run_now", "sample"].includes(modeNorm)) {
               throw new Error(`Unsupported mode: ${modeNorm}`);
             }
