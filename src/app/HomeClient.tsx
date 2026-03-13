@@ -28,7 +28,6 @@ export default function HomeClient({
   agents: AgentListItem[];
   teamNames: Record<string, string>;
 }) {
-
   const selectedTeamId = useSelectedTeamId();
   const teamFilter = selectedTeamId || "all";
 
@@ -58,10 +57,9 @@ export default function HomeClient({
     for (const a of agents) {
       const teamId = inferTeamIdFromWorkspace(a.workspace) ?? "personal";
       if (teamFilter !== "all" && teamId !== teamFilter) continue;
-      const key = teamId;
-      const list = groups.get(key) ?? [];
+      const list = groups.get(teamId) ?? [];
       list.push(a);
-      groups.set(key, list);
+      groups.set(teamId, list);
     }
 
     // Stable ordering: teams first (alphabetical), then personal.
@@ -85,8 +83,8 @@ export default function HomeClient({
   }, [agents, teamFilter, teamNames]);
 
   return (
-    <div className="ck-glass w-full p-6 sm:p-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mx-auto w-full max-w-6xl">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">
             Claw Kitchen{" "}
@@ -104,42 +102,43 @@ export default function HomeClient({
           >
             Create team
           </Link>
-          <Link
-            href="/recipes"
-            className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
-          >
-            Recipes
-          </Link>
-          <Link
-            href="/tickets"
-            className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
-          >
-            Tickets
-          </Link>
-          <Link
-            href="/channels"
-            className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
-          >
-            Channels / Bindings
-          </Link>
-          <Link
-            href="/settings"
-            className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
-          >
-            Settings
-          </Link>
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            <Link
+              href="/recipes"
+              className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
+            >
+              Recipes
+            </Link>
+            <Link
+              href="/tickets"
+              className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
+            >
+              Tickets
+            </Link>
+            <Link
+              href="/channels"
+              className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
+            >
+              Channels / Bindings
+            </Link>
+            <Link
+              href="/settings"
+              className="text-sm font-medium text-[color:var(--ck-text-secondary)] transition-colors hover:text-[color:var(--ck-text-primary)]"
+            >
+              Settings
+            </Link>
+          </div>
         </div>
       </div>
 
-
-      
-
-      <div className="mt-8 space-y-8">
+      <div className="mt-8 space-y-10">
         {grouped.map((g) => (
           <section key={g.key}>
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <h2 className="truncate text-lg font-semibold tracking-tight text-[color:var(--ck-text-primary)]">{g.title}</h2>
+                <h2 className="truncate text-lg font-semibold tracking-tight text-[color:var(--ck-text-primary)]">
+                  {g.title}
+                </h2>
                 {g.subtitle ? (
                   <div className="mt-0.5 truncate text-xs text-[color:var(--ck-text-secondary)]">{g.subtitle}</div>
                 ) : null}
@@ -164,10 +163,7 @@ export default function HomeClient({
                   <div className="truncate font-medium text-[color:var(--ck-text-primary)]">
                     {a.identityName || a.id}
                   </div>
-                  <div className="mt-1 text-xs text-[color:var(--ck-text-secondary)]">
-                    {a.id}
-                    {a.isDefault ? " • default" : ""}
-                  </div>
+                  <div className="mt-1 truncate text-xs text-[color:var(--ck-text-secondary)]">{a.id}</div>
                   {a.model ? (
                     <div className="mt-1 truncate text-xs text-[color:var(--ck-text-tertiary)]">{a.model}</div>
                   ) : null}
