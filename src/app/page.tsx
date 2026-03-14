@@ -3,6 +3,7 @@ import { type AgentListItem } from "@/lib/agents";
 import { runOpenClaw } from "@/lib/openclaw";
 import { listRecipes } from "@/lib/recipes";
 import HomeClient from "./HomeClient";
+import { formatKitchenTitle, getKitchenVersion } from "@/lib/kitchen-version";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,6 +29,17 @@ export default async function Home() {
   // Home should always reflect the current OpenClaw state (teams/agents can change outside Next).
   noStore();
 
-  const [agents, { teamNames }] = await Promise.all([getAgents(), getTeamsFromRecipes()]);
-  return <HomeClient agents={agents} teamNames={teamNames} />;
+  const [agents, { teamNames }, version] = await Promise.all([
+    getAgents(),
+    getTeamsFromRecipes(),
+    getKitchenVersion(),
+  ]);
+
+  return (
+    <HomeClient
+      agents={agents}
+      teamNames={teamNames}
+      appTitle={formatKitchenTitle(version)}
+    />
+  );
 }
