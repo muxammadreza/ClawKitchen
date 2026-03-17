@@ -88,6 +88,12 @@ describe("paths", () => {
         path.join("/home/x/.openclaw", "workspace-my-team")
       );
     });
+
+    it("maps teamId=main to the base workspace", () => {
+      expect(teamDirFromBaseWorkspace("/home/x/.openclaw/workspace", "main")).toBe(
+        path.join("/home/x/.openclaw", "workspace")
+      );
+    });
   });
 
   describe("assertSafeRelativeFileName", () => {

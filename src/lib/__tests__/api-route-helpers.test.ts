@@ -10,7 +10,7 @@ import {
 
 vi.mock("@/lib/paths", () => ({
   readOpenClawConfig: vi.fn(),
-  teamDirFromBaseWorkspace: vi.fn((base: string, teamId: string) => `${base}/../workspace-${teamId}`),
+  teamDirFromBaseWorkspace: vi.fn((base: string, teamId: string) => (teamId === "main" ? base : `${base}/../workspace-${teamId}`)),
 }));
 
 import { readOpenClawConfig } from "@/lib/paths";

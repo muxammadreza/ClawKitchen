@@ -106,6 +106,7 @@ export function parseNumberFromFilename(filename: string): number | null {
 
 function teamIdFromTeamDir(teamDir: string): string {
   const base = path.basename(teamDir);
+  if (base === "workspace") return "main";
   if (base.startsWith("workspace-")) return base.slice("workspace-".length);
   return base;
 }
@@ -120,11 +121,15 @@ export async function discoverTeamIds(): Promise<string[]> {
     return [];
   }
 
-  return entries
+  const teamIds = entries
     .filter((e) => e.startsWith("workspace-"))
     .map((e) => e.slice("workspace-".length))
-    .filter((id) => Boolean(id) && id !== "workspace")
-    .sort();
+    .filter((id) => Boolean(id) && id !== "workspace");
+
+  // Also include personal workspace scope.
+  teamIds.push("main");
+
+  return Array.from(new Set(teamIds)).sort();
 }
 
 /**
