@@ -173,8 +173,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         const s = new Set<string>();
 
-        // Always include the personal "main" scope so RJ can filter goals/tickets
-        // for the main agent workspace (agents.defaults.workspace).
+        // Always include the personal "main" scope so users can filter goals/tickets
+        // for the personal OpenClaw workspace (agents.defaults.workspace).
         s.add("main");
 
         for (const a of agents) {
