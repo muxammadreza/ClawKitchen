@@ -172,6 +172,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           : [];
 
         const s = new Set<string>();
+
+        // Always include the personal "main" scope so RJ can filter goals/tickets
+        // for the main agent workspace (agents.defaults.workspace).
+        s.add("main");
+
         for (const a of agents) {
           const ws = String(a.workspace ?? "");
           const parts = ws.split("/").filter(Boolean);

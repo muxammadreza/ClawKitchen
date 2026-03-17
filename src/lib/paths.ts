@@ -50,6 +50,10 @@ export async function getTeamWorkspaceDir(teamId: string) {
 
 /** Team workspace dir derived from agents.defaults.workspace (sibling: .. / workspace-{teamId}) */
 export function teamDirFromBaseWorkspace(baseWorkspace: string, teamId: string) {
+  // Special-case: treat "main" as the personal workspace (agents.defaults.workspace).
+  // This lets Kitchen expose a selectable "main" scope without creating a separate
+  // ~/.openclaw/workspace-main folder.
+  if (teamId === "main") return path.resolve(baseWorkspace);
   return path.resolve(baseWorkspace, "..", `workspace-${teamId}`);
 }
 
