@@ -1,4 +1,4 @@
-import { listTickets } from "@/lib/tickets";
+import { listTickets, listAllTeamsTickets } from "@/lib/tickets";
 import { TicketsBoardClient } from "@/app/tickets/TicketsBoardClient";
 import { getWorkspaceDir } from "@/lib/paths";
 
@@ -13,15 +13,14 @@ export default async function TicketsPage({
   const sp = await searchParams;
   const team = typeof sp.team === "string" ? sp.team.trim() : "";
 
-  // AppShell keeps /tickets synced with the globally selected team via ?team=.
-  // If no team is specified, show an empty prompt instead of assuming a hardcoded team.
+  // No team selected → show tickets from all teams.
   if (!team) {
-    return <TicketsBoardClient tickets={[]} basePath="/tickets" selectedTeamId={null} />;
+    const tickets = await listAllTeamsTickets();
+    return <TicketsBoardClient tickets={tickets} basePath="/tickets" selectedTeamId={null} />;
   }
-  const teamId = team;
 
-  const scope = teamId === "main" ? await getWorkspaceDir() : teamId;
+  const scope = team === "main" ? await getWorkspaceDir() : team;
   const tickets = await listTickets(scope);
 
-  return <TicketsBoardClient tickets={tickets} basePath="/tickets" selectedTeamId={team || null} />;
+  return <TicketsBoardClient tickets={tickets} basePath="/tickets" selectedTeamId={team} />;
 }
