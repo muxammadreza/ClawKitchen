@@ -106,13 +106,14 @@ async function installWorkerCron(teamId: string, agentId: string): Promise<{
     "--agent",
     agentId,
     "--cron",
-    "* * * * *",
+    "*/5 * * * *",
     "--name",
     name,
     "--description",
     description,
     "--message",
     message,
+    "--no-deliver",
     "--json",
   ]);
   if (!add.ok) throw new Error(add.stderr || add.stdout || "Failed to add cron");
