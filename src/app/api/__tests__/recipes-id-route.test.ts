@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { GET, PUT } from "../recipes/[id]/route";
 import path from "node:path";
 
-vi.mock("@/lib/openclaw", () => ({ runOpenClaw: vi.fn(), runOpenClawRaw: vi.fn() }));
+vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
 vi.mock("@/lib/recipes", () => ({
   findRecipeById: vi.fn(),
   parseFrontmatterId: vi.fn(),
@@ -10,7 +10,7 @@ vi.mock("@/lib/recipes", () => ({
   writeRecipeFile: vi.fn(),
 }));
 
-import { runOpenClaw, runOpenClawRaw } from "@/lib/openclaw";
+import { readFile } from "node:fs/promises";
 import { findRecipeById, parseFrontmatterId, resolveRecipePath, writeRecipeFile } from "@/lib/recipes";
 
 const workspaceItem = {
@@ -29,8 +29,7 @@ const builtinItem = {
 
 describe("api recipes [id] route", () => {
   beforeEach(() => {
-    vi.mocked(runOpenClaw).mockReset();
-    vi.mocked(runOpenClawRaw).mockReset();
+    vi.mocked(readFile).mockReset();
     vi.mocked(findRecipeById).mockReset();
     vi.mocked(resolveRecipePath).mockReset();
     vi.mocked(writeRecipeFile).mockReset();
@@ -49,15 +48,10 @@ describe("api recipes [id] route", () => {
       expect(json.error).toBe("Recipe not found: missing");
     });
 
-    it("returns recipe with content on success", async () => {
+    it("returns recipe with file content on success", async () => {
       vi.mocked(findRecipeById).mockResolvedValue(workspaceItem);
-      vi.mocked(runOpenClawRaw).mockResolvedValueOnce({
-        ok: true,
-        exitCode: 0,
-        stdout: "# Recipe content",
-        stderr: "",
-      });
       vi.mocked(resolveRecipePath).mockResolvedValue("/mock/recipes/my-recipe.md");
+      vi.mocked(readFile).mockResolvedValue("---\nid: my-recipe\n---\n# Recipe content");
 
       const res = await GET(new Request("https://test"), {
         params: Promise.resolve({ id: "my-recipe" }),
@@ -65,46 +59,20 @@ describe("api recipes [id] route", () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.recipe.id).toBe("my-recipe");
-      expect(json.recipe.content).toBe("# Recipe content");
+      expect(json.recipe.content).toBe("---\nid: my-recipe\n---\n# Recipe content");
       expect(json.recipe.filePath).toBe("/mock/recipes/my-recipe.md");
     });
 
-    it("strips doctor warnings from recipe content", async () => {
+    it("returns 404 when resolveRecipePath rejects", async () => {
       vi.mocked(findRecipeById).mockResolvedValue(workspaceItem);
-      const doctorOutput = `│\n◇ Doctor warnings ────────────────────────────────────────────────────────╮\n│ │\n│ - some warning │\n│ │\n├──────────────────────────────────────────────────────────────────────────╯\n---\nid: my-recipe\nname: My Recipe\n---\n# Content`;
-      vi.mocked(runOpenClawRaw).mockResolvedValueOnce({
-        ok: true,
-        exitCode: 0,
-        stdout: doctorOutput,
-        stderr: "",
-      });
-      vi.mocked(resolveRecipePath).mockResolvedValue("/mock/recipes/my-recipe.md");
-
-      const res = await GET(new Request("https://test"), {
-        params: Promise.resolve({ id: "my-recipe" }),
-      });
-      expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.recipe.content).toBe("---\nid: my-recipe\nname: My Recipe\n---\n# Content");
-      expect(json.recipe.content).not.toContain("Doctor warnings");
-    });
-
-    it("returns filePath null when resolveRecipePath rejects", async () => {
-      vi.mocked(findRecipeById).mockResolvedValue(workspaceItem);
-      vi.mocked(runOpenClawRaw).mockResolvedValueOnce({
-        ok: true,
-        exitCode: 0,
-        stdout: "# Content",
-        stderr: "",
-      });
       vi.mocked(resolveRecipePath).mockRejectedValue(new Error("no path"));
 
       const res = await GET(new Request("https://test"), {
         params: Promise.resolve({ id: "my-recipe" }),
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(404);
       const json = await res.json();
-      expect(json.recipe.filePath).toBeNull();
+      expect(json.error).toBe("Recipe file not found: my-recipe");
     });
   });
 

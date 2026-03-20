@@ -1,30 +1,10 @@
 import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
-import { runOpenClawRaw } from "@/lib/openclaw";
 import { findRecipeById, parseFrontmatterId, resolveRecipePath, writeRecipeFile } from "@/lib/recipes";
 
 function sha256(text: string) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
-}
-
-/**
- * Strip OpenClaw doctor warnings that may be prepended to stdout.
- * Warnings use box-drawing characters (┌│├◇╮╯─) before the actual
- * recipe content which starts with "---" (YAML frontmatter).
- */
-function stripDoctorWarnings(raw: string): string {
-  const idx = raw.indexOf("\n---\n");
-  if (idx < 0) {
-    // Try start-of-string frontmatter
-    if (raw.startsWith("---\n") || raw.startsWith("---\r\n")) return raw;
-    return raw;
-  }
-  // Check if everything before the frontmatter looks like doctor output
-  const prefix = raw.slice(0, idx);
-  if (/[┌│├◇╮╯─►]/.test(prefix) || /Doctor warnings/.test(prefix)) {
-    return raw.slice(idx + 1); // +1 to skip the leading \n
-  }
-  return raw;
 }
 
 export async function GET(
@@ -36,13 +16,13 @@ export async function GET(
   const item = await findRecipeById(id);
   if (!item) return NextResponse.json({ error: `Recipe not found: ${id}` }, { status: 404 });
 
-  const shown = await runOpenClawRaw(["recipes", "show", id]);
   const filePath = await resolveRecipePath(item).catch(() => null);
+  if (!filePath) return NextResponse.json({ error: `Recipe file not found: ${id}` }, { status: 404 });
 
-  const content = stripDoctorWarnings(shown.stdout);
+  const content = await readFile(filePath, "utf8");
   const recipeHash = sha256(content);
 
-  return NextResponse.json({ recipe: { ...item, content, filePath }, recipeHash, stderr: shown.stderr });
+  return NextResponse.json({ recipe: { ...item, content, filePath }, recipeHash });
 }
 
 export async function PUT(
