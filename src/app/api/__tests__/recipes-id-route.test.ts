@@ -2,7 +2,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { GET, PUT } from "../recipes/[id]/route";
 import path from "node:path";
 
-vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
+vi.mock("node:fs/promises", () => {
+  const mod = { readFile: vi.fn() };
+  return { ...mod, default: mod };
+});
 vi.mock("@/lib/recipes", () => ({
   findRecipeById: vi.fn(),
   parseFrontmatterId: vi.fn(),
