@@ -47,8 +47,8 @@ vi.mock('drizzle-orm/better-sqlite3', () => ({
 }));
 
 vi.mock('drizzle-orm/sqlite-core', () => ({
-  sqliteTable: vi.fn(() => ({})),
-  text: vi.fn(() => ({})),
+  sqliteTable: vi.fn((_name: string, cols: Record<string, unknown>) => cols),
+  text: vi.fn(() => ({ primaryKey: vi.fn(() => ({})), notNull: vi.fn(() => ({})), default: vi.fn(() => ({})) })),
 }));
 
 vi.mock('drizzle-orm', () => ({
