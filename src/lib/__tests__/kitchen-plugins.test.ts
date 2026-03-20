@@ -1,34 +1,33 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { discoverKitchenPlugins, clearPluginCache, createPluginContext } from "@/lib/kitchen-plugins";
 
-const mockExistsSync = vi.fn();
-const mockReadFileSync = vi.fn();
-const mockReaddirSync = vi.fn();
-const mockMkdirSync = vi.fn();
-
-const fsMock = {
-  existsSync: (...args: unknown[]) => mockExistsSync(...args),
-  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
-  readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
-  mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
-};
-
-vi.mock('fs', () => ({
-  ...fsMock,
-  default: fsMock,
+const {
+  mockExistsSync,
+  mockReadFileSync,
+  mockReaddirSync,
+  mockMkdirSync,
+} = vi.hoisted(() => ({
+  mockExistsSync: vi.fn(),
+  mockReadFileSync: vi.fn(),
+  mockReaddirSync: vi.fn(),
+  mockMkdirSync: vi.fn(),
 }));
 
-const mockDbExec = vi.fn();
-const mockDbClose = vi.fn();
-
-vi.mock('better-sqlite3', () => {
-  return {
-    default: class MockDatabase {
-      exec = mockDbExec;
-      close = mockDbClose;
-    }
+vi.mock('fs', () => {
+  const mod = {
+    existsSync: mockExistsSync,
+    readFileSync: mockReadFileSync,
+    readdirSync: mockReaddirSync,
+    mkdirSync: mockMkdirSync,
   };
+  return { ...mod, default: mod };
 });
+
+vi.mock('better-sqlite3', () => ({
+  default: class MockDatabase {
+    exec = vi.fn();
+    close = vi.fn();
+  }
+}));
 
 vi.mock('drizzle-orm/better-sqlite3', () => ({
   drizzle: vi.fn(() => ({
@@ -55,6 +54,8 @@ vi.mock('drizzle-orm/sqlite-core', () => ({
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
 }));
+
+import { discoverKitchenPlugins, clearPluginCache, createPluginContext } from "@/lib/kitchen-plugins";
 
 describe("Kitchen Plugins", () => {
   beforeEach(() => {
