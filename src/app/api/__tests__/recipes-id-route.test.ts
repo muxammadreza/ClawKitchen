@@ -69,6 +69,26 @@ describe("api recipes [id] route", () => {
       expect(json.recipe.filePath).toBe("/mock/recipes/my-recipe.md");
     });
 
+    it("strips doctor warnings from recipe content", async () => {
+      vi.mocked(findRecipeById).mockResolvedValue(workspaceItem);
+      const doctorOutput = `│\n◇ Doctor warnings ────────────────────────────────────────────────────────╮\n│ │\n│ - some warning │\n│ │\n├──────────────────────────────────────────────────────────────────────────╯\n---\nid: my-recipe\nname: My Recipe\n---\n# Content`;
+      vi.mocked(runOpenClawRaw).mockResolvedValueOnce({
+        ok: true,
+        exitCode: 0,
+        stdout: doctorOutput,
+        stderr: "",
+      });
+      vi.mocked(resolveRecipePath).mockResolvedValue("/mock/recipes/my-recipe.md");
+
+      const res = await GET(new Request("https://test"), {
+        params: Promise.resolve({ id: "my-recipe" }),
+      });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.recipe.content).toBe("---\nid: my-recipe\nname: My Recipe\n---\n# Content");
+      expect(json.recipe.content).not.toContain("Doctor warnings");
+    });
+
     it("returns filePath null when resolveRecipePath rejects", async () => {
       vi.mocked(findRecipeById).mockResolvedValue(workspaceItem);
       vi.mocked(runOpenClawRaw).mockResolvedValueOnce({

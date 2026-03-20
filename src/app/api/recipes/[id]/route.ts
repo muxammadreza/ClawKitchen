@@ -7,6 +7,26 @@ function sha256(text: string) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+/**
+ * Strip OpenClaw doctor warnings that may be prepended to stdout.
+ * Warnings use box-drawing characters (┌│├◇╮╯─) before the actual
+ * recipe content which starts with "---" (YAML frontmatter).
+ */
+function stripDoctorWarnings(raw: string): string {
+  const idx = raw.indexOf("\n---\n");
+  if (idx < 0) {
+    // Try start-of-string frontmatter
+    if (raw.startsWith("---\n") || raw.startsWith("---\r\n")) return raw;
+    return raw;
+  }
+  // Check if everything before the frontmatter looks like doctor output
+  const prefix = raw.slice(0, idx);
+  if (/[┌│├◇╮╯─►]/.test(prefix) || /Doctor warnings/.test(prefix)) {
+    return raw.slice(idx + 1); // +1 to skip the leading \n
+  }
+  return raw;
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -19,9 +39,10 @@ export async function GET(
   const shown = await runOpenClawRaw(["recipes", "show", id]);
   const filePath = await resolveRecipePath(item).catch(() => null);
 
-  const recipeHash = sha256(shown.stdout);
+  const content = stripDoctorWarnings(shown.stdout);
+  const recipeHash = sha256(content);
 
-  return NextResponse.json({ recipe: { ...item, content: shown.stdout, filePath }, recipeHash, stderr: shown.stderr });
+  return NextResponse.json({ recipe: { ...item, content, filePath }, recipeHash, stderr: shown.stderr });
 }
 
 export async function PUT(
