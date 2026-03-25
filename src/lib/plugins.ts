@@ -1,4 +1,4 @@
-import { runOpenClaw } from "@/lib/openclaw";
+import { runOpenClaw, extractJson } from "@/lib/openclaw";
 
 export type PluginListEntry = {
   id?: unknown;
@@ -14,7 +14,7 @@ function extractPluginEntries(raw: unknown): PluginListEntry[] {
 }
 
 export function parseEnabledPluginIds(stdout: string): string[] {
-  const parsed = JSON.parse(stdout) as unknown;
+  const parsed = extractJson(stdout) as unknown;
   const items = extractPluginEntries(parsed);
   return items
     .filter((p) => Boolean(p) && typeof p === "object" && (p as { enabled?: unknown }).enabled === true)

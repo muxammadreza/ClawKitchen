@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { type AgentListItem } from "@/lib/agents";
 import { errorMessage } from "@/lib/errors";
-import { runOpenClaw } from "@/lib/openclaw";
+import { runOpenClaw, extractJson } from "@/lib/openclaw";
 
 export async function GET() {
   try {
     const { stdout, stderr } = await runOpenClaw(["agents", "list", "--json"]);
 
-    const agents = JSON.parse(stdout) as AgentListItem[];
+    const agents = extractJson<AgentListItem[]>(stdout) ?? [];
 
     return NextResponse.json({ agents, stderr: stderr || undefined });
   } catch (err) {

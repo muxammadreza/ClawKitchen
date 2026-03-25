@@ -1,4 +1,4 @@
-import { runOpenClaw } from "./openclaw";
+import { runOpenClaw, extractJson } from "./openclaw";
 
 export type AgentListItem = {
   id: string;
@@ -10,7 +10,7 @@ export type AgentListItem = {
 
 export async function resolveAgentWorkspace(agentId: string): Promise<string> {
   const { stdout } = await runOpenClaw(["agents", "list", "--json"]);
-  const list = JSON.parse(stdout) as AgentListItem[];
+  const list = extractJson<AgentListItem[]>(stdout) ?? [];
   const agent = list.find((a) => a.id === agentId);
   if (!agent?.workspace) throw new Error(`Agent workspace not found for ${agentId}`);
   return agent.workspace;
