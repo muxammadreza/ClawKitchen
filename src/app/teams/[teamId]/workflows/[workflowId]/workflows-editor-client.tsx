@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import type { WorkflowFileV1 } from "@/lib/workflows/types";
 import { validateWorkflowFileV1 } from "@/lib/workflows/validate";
@@ -26,6 +27,7 @@ export default function WorkflowsEditorClient({
   draft: boolean;
   llmTaskEnabled?: boolean;
 }) {
+  const router = useRouter();
   const [view, setView] = useState<"canvas" | "json">("canvas");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<LoadState>({ kind: "loading" });
@@ -1658,6 +1660,13 @@ export default function WorkflowsEditorClient({
                               const json = await res.json();
                               if (!res.ok || !json.ok) throw new Error(json.error || "Failed to create run");
 
+                              const newRunId = String(json.runId ?? "").trim();
+                              if (newRunId) {
+                                router.push(`/teams/${encodeURIComponent(teamId)}/runs/${encodeURIComponent(wfId)}/${encodeURIComponent(newRunId)}`);
+                                return;
+                              }
+
+                              // Fallback: refresh list if no runId returned
                               const listRes = await fetch(
                                 `/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(wfId)}`,
                                 { cache: "no-store" }
