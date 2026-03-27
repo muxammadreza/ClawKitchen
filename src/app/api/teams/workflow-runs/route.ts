@@ -563,63 +563,48 @@ export async function POST(req: Request) {
           );
         }
 
-        // Try to claim the newly enqueued run before ticking workers.
-        for (let attempt = 0; attempt < 4; attempt++) {
-          const runnerRes = await runOpenClaw(["recipes", "workflows", "runner-once", "--team-id", teamId]);
-          if (!runnerRes.ok) throw new Error(runnerRes.stderr || runnerRes.stdout || "Failed to run runner-once");
+        // Claim specifically the run we just enqueued (--run-id prevents picking up stale runs).
+        const runnerRes = await runOpenClaw(["recipes", "workflows", "runner-once", "--team-id", teamId, "--run-id", enqRunId]);
+        if (!runnerRes.ok) throw new Error(runnerRes.stderr || runnerRes.stdout || "Failed to run runner-once");
 
-          try {
-            const { run } = await readWorkflowRun(teamId, workflowId, enqRunId);
-            const statusAny = (run as unknown as { status?: unknown }).status;
-            if (statusAny && String(statusAny) != "queued") break;
-          } catch {
-            // fall through
+        // Best-effort: kick workers immediately so the run advances.
+        // Failures here must NOT prevent returning the runId to the UI.
+        try {
+          for (const agentId of uniq) {
+            await runOpenClaw([
+              "recipes",
+              "workflows",
+              "worker-tick",
+              "--team-id",
+              teamId,
+              "--agent-id",
+              agentId,
+              "--limit",
+              "5",
+              "--worker-id",
+              "kitchen-run-now",
+            ]);
           }
 
-          await new Promise((r) => setTimeout(r, 250));
-        }
-
-        for (const agentId of uniq) {
-          const workerRes = await runOpenClaw([
-            "recipes",
-            "workflows",
-            "worker-tick",
-            "--team-id",
-            teamId,
-            "--agent-id",
-            agentId,
-            "--limit",
-            "5",
-            "--worker-id",
-            "kitchen-run-now",
-          ]);
-          if (!workerRes.ok) throw new Error(workerRes.stderr || workerRes.stdout || `Failed worker-tick for ${agentId}`);
-        }
-
-        // Second pass: nodes like human_approval get re-enqueued onto the
-        // agent that just finished the prior node.  The first pass won't have
-        // ticked that agent a second time, so re-tick all agents if the run
-        // is still in-flight.
-        try {
+          // Second pass: nodes like human_approval get re-enqueued onto the
+          // agent that just finished the prior node.  The first pass won't have
+          // ticked that agent a second time, so re-tick all agents if the run
+          // is still in-flight.
           const { run: postRun } = await readWorkflowRun(teamId, workflowId, enqRunId);
           const postStatus = String((postRun as unknown as { status?: unknown }).status ?? "");
           if (postStatus === "waiting_workers") {
             for (const agentId of uniq) {
-              try {
-                await runOpenClaw([
-                  "recipes", "workflows", "worker-tick",
-                  "--team-id", teamId,
-                  "--agent-id", agentId,
-                  "--limit", "5",
-                  "--worker-id", "kitchen-run-now-pass2",
-                ]);
-              } catch {
-                // best-effort second pass
-              }
+              await runOpenClaw([
+                "recipes", "workflows", "worker-tick",
+                "--team-id", teamId,
+                "--agent-id", agentId,
+                "--limit", "5",
+                "--worker-id", "kitchen-run-now-pass2",
+              ]);
             }
           }
         } catch {
-          // best-effort second pass — don't fail the overall run_now
+          // best-effort — cron workers will pick up remaining work
         }
       }
 
