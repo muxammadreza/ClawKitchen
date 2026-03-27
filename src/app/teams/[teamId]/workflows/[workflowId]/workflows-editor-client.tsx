@@ -1797,7 +1797,7 @@ export default function WorkflowsEditorClient({
 
                     <div className="mt-2 space-y-1">
                       {workflowRunsLoading ? (
-                        <div className="text-xs text-[color:var(--ck-text-secondary)]">Loading runs…</div>
+                        <div className="text-xs text-[color:var(--ck-text-secondary)]">Serving up hot…</div>
                       ) : workflowRuns.length ? (
                         workflowRuns.slice(0, 8).map((f) => {
                           const wfId = String(wf.id ?? "").trim();
