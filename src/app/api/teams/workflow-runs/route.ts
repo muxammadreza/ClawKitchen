@@ -374,11 +374,68 @@ export async function POST(req: Request) {
   if (!workflowId) return NextResponse.json({ ok: false, error: "workflowId is required" }, { status: 400 });
 
   try {
-    // Action mode: approve/request_changes/cancel (file-first) updates an existing run.
+    // Action mode: approve/request_changes/cancel/stop/delete updates an existing run.
     if (action) {
       if (!runIdFromBody) return NextResponse.json({ ok: false, error: "runId is required for action" }, { status: 400 });
-      if (!["approve", "request_changes", "cancel"].includes(action)) {
+      if (!["approve", "request_changes", "cancel", "stop", "delete"].includes(action)) {
         return NextResponse.json({ ok: false, error: `Unsupported action: ${action}` }, { status: 400 });
+      }
+
+      // Handle stop action
+      if (action === "stop") {
+        const existing = await readWorkflowRun(teamId, workflowId, runIdFromBody);
+        const run = existing.run;
+        
+        // Only allow stopping runs that are active
+        if (!["queued", "running", "waiting_for_approval", "waiting_workers"].includes(run.status)) {
+          return NextResponse.json({ ok: false, error: `Cannot stop run with status: ${run.status}` }, { status: 400 });
+        }
+
+        const stoppedAt = nowIso();
+        const stoppedNodes = Array.isArray(run.nodes)
+          ? run.nodes.map((n) => {
+              if (n.status === "pending" || n.status === "running") {
+                return {
+                  ...n,
+                  status: "skipped" as const,
+                  startedAt: n.startedAt ?? stoppedAt,
+                  endedAt: stoppedAt,
+                  output: n.output ?? { note: "skipped due to stop" },
+                };
+              }
+              return n;
+            })
+          : [];
+
+        const stoppedRun: WorkflowRunFileV1 = {
+          ...run,
+          status: "canceled",
+          endedAt: stoppedAt,
+          nodes: stoppedNodes,
+        };
+
+        return jsonOkRest({ ...(await writeWorkflowRun(teamId, workflowId, stoppedRun)), runId: run.id });
+      }
+
+      // Handle delete action
+      if (action === "delete") {
+        // Delete run directory entirely
+        const teamDir = await getTeamWorkspaceDir(teamId);
+        const runDir = path.join(teamDir, `shared-context/workflow-runs/${runIdFromBody}`);
+        
+        try {
+          await fs.rm(runDir, { recursive: true, force: true });
+        } catch {
+          // Also try legacy path structure
+          const legacyRunDir = path.join(teamDir, `shared-context/workflows/${workflowId}/runs/${runIdFromBody}`);
+          try {
+            await fs.rm(legacyRunDir, { recursive: true, force: true });
+          } catch {
+            // If neither path exists, that's fine - already deleted
+          }
+        }
+
+        return jsonOkRest({ ok: true, deleted: true, runId: runIdFromBody });
       }
 
       const existing = await readWorkflowRun(teamId, workflowId, runIdFromBody);
