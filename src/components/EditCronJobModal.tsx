@@ -52,7 +52,6 @@ export function EditCronJobModal({ job, open, onClose, onSaved }: EditCronJobMod
     setLoading,
     setError,
     updateField,
-    reset,
     buildPayload,
   } = useCronJobForm();
 
@@ -61,7 +60,7 @@ export function EditCronJobModal({ job, open, onClose, onSaved }: EditCronJobMod
     if (job) {
       const everyMs = job.schedule?.everyMs;
       let everyValue = 60;
-      let everyUnit: "s" | "m" | "h" | "d" = "m";
+      let everyUnit: "s" | "m" | "h" | "d";
       
       if (everyMs) {
         if (everyMs % 86400000 === 0) {
@@ -77,6 +76,8 @@ export function EditCronJobModal({ job, open, onClose, onSaved }: EditCronJobMod
           everyValue = everyMs / 1000;
           everyUnit = "s";
         }
+      } else {
+        everyUnit = "m";
       }
 
       // Update all form fields with job data

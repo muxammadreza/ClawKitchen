@@ -1,4 +1,4 @@
-import { runOpenClaw } from "@/lib/openclaw";
+import { runOpenClaw, type OpenClawExecResult } from "@/lib/openclaw";
 
 export interface CronJobData {
   name?: string;
@@ -152,7 +152,7 @@ function buildCronJobArgs(data: CronJobData): string[] {
   return args;
 }
 
-export async function createCronJob(data: CronJobData): Promise<any> {
+export async function createCronJob(data: CronJobData): Promise<OpenClawExecResult> {
   const validationError = validateCronJobData(data);
   if (validationError) {
     throw new Error(validationError);
@@ -162,7 +162,7 @@ export async function createCronJob(data: CronJobData): Promise<any> {
   return await runOpenClaw(args);
 }
 
-export async function updateCronJob(id: string, data: CronJobData): Promise<any> {
+export async function updateCronJob(id: string, data: CronJobData): Promise<OpenClawExecResult> {
   const validationError = validateCronJobData(data);
   if (validationError) {
     throw new Error(validationError);
