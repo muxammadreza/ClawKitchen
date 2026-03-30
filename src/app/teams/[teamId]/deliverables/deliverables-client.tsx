@@ -248,7 +248,7 @@ export default function DeliverablesClient({
                           onClick={(e) => e.stopPropagation()}
                           className="text-xs px-2 py-1 border border-white/10 rounded hover:bg-white/5 text-[color:var(--ck-text-secondary)]"
                         >
-                          Run →
+                          View Run →
                         </Link>
                       </div>
                     </div>
