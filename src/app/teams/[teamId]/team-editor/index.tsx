@@ -32,7 +32,7 @@ const BASE_TABS = [
   { id: "cron" as const, label: "Cron" },
   { id: "files" as const, label: "Files" },
   { id: "orchestrator" as const, label: "Orchestrator" },
-  { id: "plugins" as const, label: "Plugins" },
+  // { id: "plugins" as const, label: "Plugins" }, // Not ready for production
 ] as const;
 
 const EXPERIMENTAL_TABS = [
@@ -60,7 +60,7 @@ export default function TeamEditor({ teamId, initialTab }: { teamId: string; ini
   // (Avoids SSR/minifier TDZ issues like "Cannot access before initialization".)
 
   const [activeTab, setActiveTab] = useState<TabId>(() => {
-    const valid: TabId[] = ["recipe", "agents", "skills", "cron", "files", "memory", "orchestrator", "workflows", "plugins"];
+    const valid: TabId[] = ["recipe", "agents", "skills", "cron", "files", "memory", "orchestrator", "workflows"]; // removed plugins
     return valid.includes(initialTab as TabId) ? (initialTab as TabId) : "recipe";
   });
   const tabs = useMemo(() => [...BASE_TABS, ...EXPERIMENTAL_TABS], []);
@@ -535,11 +535,13 @@ export default function TeamEditor({ teamId, initialTab }: { teamId: string; ini
         />
       )}
 
+      {/* Plugins tab disabled - not ready for production
       {activeTab === "plugins" && (
         <div className="mt-6">
           <PluginTabs teamType={teamType} teamId={teamId} />
         </div>
       )}
+      */}
 
       <PublishChangesModal
         open={publishOpen}
