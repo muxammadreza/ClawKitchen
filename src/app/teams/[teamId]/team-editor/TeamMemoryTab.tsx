@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { errorMessage } from "@/lib/errors";
 
 /* ---------- types ---------- */
@@ -540,8 +542,27 @@ export function TeamMemoryTab({ teamId }: { teamId: string }) {
             />
           ) : (
             <div className="mt-3 max-h-[500px] overflow-auto rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/30 p-4">
-              <div className="prose prose-invert prose-sm max-w-none whitespace-pre-wrap font-mono text-sm text-[color:var(--ck-text-primary)]">
-                {selectedMarkdown.content || "(empty file)"}
+              <div className="prose prose-invert prose-sm max-w-none text-sm text-[color:var(--ck-text-primary)]">
+                <ReactMarkdown 
+                  remarkPlugins={[remarkGfm]}
+                  className="text-[color:var(--ck-text-primary)]"
+                  components={{
+                    // Style links for dark theme
+                    a: ({ href, children, ...props }) => (
+                      <a href={href} {...props} className="text-blue-400 hover:text-blue-300 underline">
+                        {children}
+                      </a>
+                    ),
+                    // Style code blocks
+                    code: ({ className, children, ...props }) => (
+                      <code className={`${className || ''} bg-black/50 px-1 py-0.5 rounded text-xs`} {...props}>
+                        {children}
+                      </code>
+                    ),
+                  }}
+                >
+                  {selectedMarkdown.content || "(empty file)"}
+                </ReactMarkdown>
               </div>
             </div>
           )}
