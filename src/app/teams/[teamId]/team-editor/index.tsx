@@ -179,7 +179,7 @@ export default function TeamEditor({ teamId, initialTab }: { teamId: string; ini
     setTeamMetaRecipeHash(null);
     setPublishOpen(false);
     setDeleteOpen(false);
-    const valid: TabId[] = ["recipe", "agents", "skills", "cron", "files", "chat", "memory", "orchestrator", "workflows", "deliverables", "plugins"];
+    const valid: TabId[] = ["recipe", "agents", "skills", "cron", "files", "chat", "memory", "orchestrator", "workflows", "deliverables"];
     if (initialTab && valid.includes(initialTab as TabId)) {
       setActiveTab(initialTab as TabId);
     }
