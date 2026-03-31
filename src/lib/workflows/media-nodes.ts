@@ -11,7 +11,7 @@ export interface MediaGenerationConfig {
   quality?: 'standard' | 'hd';
   style?: 'natural' | 'vivid';
   model?: string;
-  outputPath: string;
+  outputPath?: string;
   duration?: string; // For video
   // Provider-specific configs
   skillId?: string;
@@ -82,10 +82,6 @@ export function validateMediaConfig(config: Partial<MediaGenerationConfig>): str
     errors.push('Prompt is required');
   }
   
-  if (!config.outputPath?.trim()) {
-    errors.push('Output path is required');
-  }
-  
   if (config.mediaType === 'image') {
     if (config.size && !['256x256', '512x512', '1024x1024', '1792x1024', '1024x1792'].includes(config.size)) {
       errors.push('Invalid image size');
@@ -102,17 +98,28 @@ export function validateMediaConfig(config: Partial<MediaGenerationConfig>): str
 }
 
 /**
- * Template variable suggestions for media generation prompts
+ * Built-in template variable suggestions for media generation prompts.
+ * Prior node outputs (e.g. {{research.output}}) are added dynamically
+ * by the UI component based on the current workflow.
  */
 export const TEMPLATE_VARIABLES = [
   '{{run.id}}',
-  '{{team.id}}',
   '{{workflow.name}}',
-  '{{node.name}}',
-  '{{timestamp}}',
+  '{{workflow.id}}',
   '{{date}}',
-  '{{user.name}}'
 ];
+
+/**
+ * Build dynamic template variable list including prior node outputs.
+ * @param allNodeIds - all node IDs in the workflow
+ * @param currentNodeId - the node being edited (excluded from suggestions)
+ */
+export function buildTemplateVariables(allNodeIds: string[], currentNodeId: string): string[] {
+  const nodeVars = allNodeIds
+    .filter((id) => id !== currentNodeId && id !== 'start' && id !== 'end')
+    .map((id) => `{{${id}.output}}`);
+  return [...nodeVars, ...TEMPLATE_VARIABLES];
+}
 
 /**
  * Common prompt templates for different media types
