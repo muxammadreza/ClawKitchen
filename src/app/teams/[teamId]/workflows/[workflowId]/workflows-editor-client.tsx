@@ -8,7 +8,6 @@ import type { WorkflowFileV1 } from "@/lib/workflows/types";
 import { validateWorkflowFileV1 } from "@/lib/workflows/validate";
 import { getMediaNodeConfig, isMediaNode, type MediaGenerationConfig } from "@/lib/workflows/media-nodes";
 import { MediaGenerationConfigComponent } from "@/components/media/MediaGenerationConfig";
-import { gatewayConfigGet } from "@/lib/gateway";
 
 type LoadState =
   | { kind: "loading" }
@@ -214,15 +213,13 @@ export default function WorkflowsEditorClient({
     (async () => {
       setAvailableModelsError("");
       try {
-        const { raw } = await gatewayConfigGet();
-        const cfg = JSON.parse(raw) as {
-          agents?: { defaults?: { model?: { primary?: unknown; fallbacks?: unknown[] } } };
-        };
-        const primary = typeof cfg.agents?.defaults?.model?.primary === "string" ? cfg.agents.defaults.model.primary.trim() : "";
-        const fallbacks = Array.isArray(cfg.agents?.defaults?.model?.fallbacks)
-          ? cfg.agents.defaults.model.fallbacks.map((m) => String(m ?? "").trim()).filter(Boolean)
+        const res = await fetch("/api/settings/model-options", { cache: "no-store" });
+        const json = (await res.json()) as { ok?: boolean; models?: unknown[]; error?: string };
+        if (!res.ok || json.ok === false) throw new Error(json.error || "Failed to load model options");
+
+        const deduped = Array.isArray(json.models)
+          ? Array.from(new Set(json.models.map((m) => String(m ?? "").trim()).filter(Boolean)))
           : [];
-        const deduped = Array.from(new Set([primary, ...fallbacks].filter(Boolean)));
         setAvailableModels(deduped);
       } catch (e: unknown) {
         setAvailableModelsError(e instanceof Error ? e.message : String(e));
