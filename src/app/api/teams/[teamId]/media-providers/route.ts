@@ -168,9 +168,23 @@ async function checkSkillProviders(): Promise<MediaProvider[]> {
             if (descMatch) description = descMatch[1].replace(/"/g, '');
             
             // Check for media generation capabilities
-            const hasImageGen = /\b(image|picture|photo|visual|media|video|audio)\b.*\b(generat|creat|make|produc)\b/i.test(skillMd) ||
-                               /\b(generat|creat|make|produc)\b.*\b(image|picture|photo|visual|media|video|audio)\b/i.test(skillMd) ||
-                               /dall.?e|stable.?diffusion|midjourney|cellcog|any.?to.?any/i.test(skillMd);
+            // Also check if skill has generate_video.py or generate_image.py scripts
+            let hasMediaScript = false;
+            try {
+              const scriptFiles = await fs.readdir(path.join(skillPath, 'scripts'));
+              hasMediaScript = scriptFiles.some(f => /^generate_(video|image|audio)\./i.test(f));
+            } catch { /* no scripts dir */ }
+            if (!hasMediaScript) {
+              try {
+                const topFiles = await fs.readdir(skillPath);
+                hasMediaScript = topFiles.some(f => /^generate_(video|image|audio)\./i.test(f));
+              } catch { /* ignore */ }
+            }
+            
+            const hasImageGen = hasMediaScript ||
+                               /\b(image|picture|photo|visual|media|video|audio)s?\b.*\b(generat|creat|make|produc)/i.test(skillMd) ||
+                               /\b(generat|creat|make|produc)\w*.*\b(image|picture|photo|visual|media|video|audio)/i.test(skillMd) ||
+                               /dall.?e|stable.?diffusion|midjourney|cellcog|any.?to.?any|runway|kling|luma/i.test(skillMd);
             
             if (hasImageGen) {
               const supportedTypes: string[] = [];
@@ -179,21 +193,19 @@ async function checkSkillProviders(): Promise<MediaProvider[]> {
               if (/\baudio\b/i.test(skillMd)) supportedTypes.push('audio');
               if (supportedTypes.length === 0) supportedTypes.push('image'); // default
               
-              // Check for API key requirements
+              // Check for API key requirements (auto-detect any *_API_KEY or *_API_SECRET mentions)
               let available = true;
               let error: string | undefined;
               
-              if (skillMd.includes('OPENAI_API_KEY') && !process.env.OPENAI_API_KEY) {
-                available = false;
-                error = 'OPENAI_API_KEY required';
-              }
-              if (skillMd.includes('CELLCOG_API_KEY') && !process.env.CELLCOG_API_KEY) {
-                available = false;
-                error = 'CELLCOG_API_KEY required';
-              }
-              if (skillMd.includes('EVOLINK_API_KEY') && !process.env.EVOLINK_API_KEY) {
-                available = false;
-                error = 'EVOLINK_API_KEY required';
+              const envVarPattern = /\b([A-Z][A-Z0-9_]*(?:_API_KEY|_API_SECRET|_SECRET))\b/g;
+              let envMatch;
+              while ((envMatch = envVarPattern.exec(skillMd)) !== null) {
+                const envVar = envMatch[1];
+                if (!process.env[envVar]) {
+                  available = false;
+                  error = `${envVar} required`;
+                  break;
+                }
               }
               
               allSkills.push({
