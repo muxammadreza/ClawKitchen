@@ -179,21 +179,19 @@ async function checkSkillProviders(): Promise<MediaProvider[]> {
               if (/\baudio\b/i.test(skillMd)) supportedTypes.push('audio');
               if (supportedTypes.length === 0) supportedTypes.push('image'); // default
               
-              // Check for API key requirements
+              // Check for API key requirements (auto-detect any *_API_KEY or *_API_SECRET mentions)
               let available = true;
               let error: string | undefined;
               
-              if (skillMd.includes('OPENAI_API_KEY') && !process.env.OPENAI_API_KEY) {
-                available = false;
-                error = 'OPENAI_API_KEY required';
-              }
-              if (skillMd.includes('CELLCOG_API_KEY') && !process.env.CELLCOG_API_KEY) {
-                available = false;
-                error = 'CELLCOG_API_KEY required';
-              }
-              if (skillMd.includes('EVOLINK_API_KEY') && !process.env.EVOLINK_API_KEY) {
-                available = false;
-                error = 'EVOLINK_API_KEY required';
+              const envVarPattern = /\b([A-Z][A-Z0-9_]*(?:_API_KEY|_API_SECRET|_SECRET))\b/g;
+              let envMatch;
+              while ((envMatch = envVarPattern.exec(skillMd)) !== null) {
+                const envVar = envMatch[1];
+                if (!process.env[envVar]) {
+                  available = false;
+                  error = `${envVar} required`;
+                  break;
+                }
               }
               
               allSkills.push({
