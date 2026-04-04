@@ -1,29 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
-import {
-  KNOWN_DRIVERS,
-  loadAllEnvVars,
-  isDriverAvailable,
-} from '@/lib/workflows/media-driver-manifest';
+import { runOpenClaw } from '@/lib/openclaw';
+
+type MediaType = 'image' | 'video' | 'audio';
 
 export interface MediaProvider {
   id: string;
   name: string;
-  supportedTypes: ('image' | 'video' | 'audio')[];
+  supportedTypes: MediaType[];
   available: boolean;
-  models?: string[];
   error?: string;
   priority?: number;
+}
+
+interface DriverInfo {
+  slug: string;
+  displayName: string;
+  mediaType: MediaType;
+  available: boolean;
+  missingEnvVars: string[];
 }
 
 /**
  * GET /api/teams/[teamId]/media-providers
  *
- * Returns available media generation providers by checking:
- * 1. Known driver registry (static manifest with env-var checks)
- * 2. Auto-discovered skills that have generate_* scripts but no driver
- * 3. HTTP/local endpoints (Stable Diffusion, ComfyUI)
+ * Returns available media generation providers by:
+ * 1. Calling ClawRecipes driver registry via CLI (single source of truth)
+ * 2. Auto-discovering additional skills with generate_* scripts
+ * 3. Checking HTTP/local endpoints (Stable Diffusion, ComfyUI)
  */
 export async function GET(
   _request: NextRequest,
@@ -31,30 +36,18 @@ export async function GET(
 ): Promise<NextResponse<MediaProvider[] | { error: string }>> {
   try {
     await params;
-    const env = await loadAllEnvVars();
     const providers: MediaProvider[] = [];
 
-    // ── 1. Known drivers from manifest ────────────────────────────────
-    for (const driver of KNOWN_DRIVERS) {
-      const available = isDriverAvailable(driver, env);
-      providers.push({
-        id: `skill-${driver.slug}`,
-        name: driver.displayName,
-        supportedTypes: [driver.mediaType],
-        available,
-        error: available
-          ? undefined
-          : `Missing: ${driver.requiredEnvVars.filter((v) => !env[v]).join(', ')}`,
-        priority: driver.priority,
-      });
-    }
+    // 1. Known drivers from ClawRecipes registry
+    const driverProviders = await fetchDriverProviders();
+    providers.push(...driverProviders);
 
-    // ── 2. Auto-discover additional skills with generate_* scripts ────
-    const knownSlugs = new Set(KNOWN_DRIVERS.map((d) => d.slug));
+    // 2. Auto-discover unknown skills with generate_* scripts
+    const knownSlugs = new Set(driverProviders.map((p) => p.id.replace(/^skill-/, '')));
     const discovered = await discoverUnknownSkills(knownSlugs);
     providers.push(...discovered);
 
-    // ── 3. HTTP/local providers ───────────────────────────────────────
+    // 3. HTTP/local providers (only if running)
     const httpProviders = await checkHTTPProviders();
     providers.push(...httpProviders);
 
@@ -75,22 +68,49 @@ export async function GET(
   }
 }
 
-/**
- * Scan skill directories for generate_image/generate_video scripts
- * that don't already have a known driver.
- */
+/** Call ClawRecipes to get the driver registry with availability info */
+async function fetchDriverProviders(): Promise<MediaProvider[]> {
+  try {
+    const res = await runOpenClaw(['recipes', 'workflows', 'media-drivers']);
+    if (res.exitCode !== 0) {
+      console.warn('media-drivers command failed:', res.stderr);
+      return [];
+    }
+
+    const drivers: DriverInfo[] = JSON.parse(res.stdout);
+    const priorityBase: Record<string, number> = {
+      image: 90,
+      video: 80,
+      audio: 70,
+    };
+
+    return drivers.map((d, i) => ({
+      id: `skill-${d.slug}`,
+      name: d.displayName,
+      supportedTypes: [d.mediaType],
+      available: d.available,
+      error: d.available
+        ? undefined
+        : `Missing: ${d.missingEnvVars.join(', ')}`,
+      priority: (priorityBase[d.mediaType] ?? 60) - i,
+    }));
+  } catch (err) {
+    console.warn('Failed to fetch media drivers from ClawRecipes:', err);
+    return [];
+  }
+}
+
+/** Scan skill dirs for generate_* scripts not covered by known drivers */
 async function discoverUnknownSkills(
   knownSlugs: Set<string>
 ): Promise<MediaProvider[]> {
   const homedir = process.env.HOME || '/home/control';
-  const skillRoots = [
+  const roots = [
     path.join(homedir, '.openclaw', 'skills'),
     path.join(homedir, '.openclaw', 'workspace', 'skills'),
     path.join(homedir, '.openclaw', 'workspace'),
   ];
-
-  const candidates = await collectSkillCandidates(skillRoots, knownSlugs);
-  return candidates;
+  return collectSkillCandidates(roots, knownSlugs);
 }
 
 async function collectSkillCandidates(
@@ -133,7 +153,7 @@ async function probeSkillDir(
     if (!stat.isDirectory()) return null;
   } catch { return null; }
 
-  const types: ('image' | 'video' | 'audio')[] = [];
+  const types: MediaType[] = [];
   if (await hasAnyScript(skillDir, imageScripts)) types.push('image');
   if (await hasAnyScript(skillDir, videoScripts)) types.push('video');
   if (await hasAnyScript(skillDir, audioScripts)) types.push('audio');
@@ -148,26 +168,19 @@ async function probeSkillDir(
   };
 }
 
-/** Check if a skill dir (or its scripts/ subdir) contains any of the candidate scripts */
-async function hasAnyScript(
-  skillDir: string,
-  candidates: string[]
-): Promise<boolean> {
+async function hasAnyScript(skillDir: string, candidates: string[]): Promise<boolean> {
   const searchDirs = [skillDir, path.join(skillDir, 'scripts')];
   for (const dir of searchDirs) {
     for (const c of candidates) {
       try {
         await fs.access(path.join(dir, c));
         return true;
-      } catch {
-        /* not found */
-      }
+      } catch { /* not found */ }
     }
   }
   return false;
 }
 
-/** Convert slug to display name: "nano-banana-pro" → "Nano Banana Pro" */
 function formatSkillName(slug: string): string {
   return slug
     .replace(/^skill-/, '')
@@ -177,7 +190,6 @@ function formatSkillName(slug: string): string {
 
 async function checkHTTPProviders(): Promise<MediaProvider[]> {
   const providers: MediaProvider[] = [];
-
   const endpoints = [
     { url: 'http://localhost:7860', name: 'Stable Diffusion WebUI', priority: 40 },
     { url: 'http://localhost:8188', name: 'ComfyUI', priority: 35 },
@@ -189,15 +201,17 @@ async function checkHTTPProviders(): Promise<MediaProvider[]> {
         method: 'HEAD',
         signal: AbortSignal.timeout(2000),
       });
-      providers.push({
-        id: `http-${ep.url.replace(/[^\w]/g, '-')}`,
-        name: ep.name,
-        supportedTypes: ['image'],
-        available: res.ok,
-        priority: ep.priority,
-      });
+      if (res.ok) {
+        providers.push({
+          id: `http-${ep.url.replace(/[^\w]/g, '-')}`,
+          name: ep.name,
+          supportedTypes: ['image'],
+          available: true,
+          priority: ep.priority,
+        });
+      }
     } catch {
-      // Don't add unavailable HTTP providers — they just clutter the dropdown
+      // Don't add unavailable HTTP endpoints
     }
   }
 
