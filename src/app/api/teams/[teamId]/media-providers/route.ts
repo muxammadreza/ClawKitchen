@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
-
-const execAsync = promisify(exec);
+import {
+  KNOWN_DRIVERS,
+  loadAllEnvVars,
+  isDriverAvailable,
+} from '@/lib/workflows/media-driver-manifest';
 
 export interface MediaProvider {
   id: string;
   name: string;
-  supportedTypes: ('image' | 'video')[];
+  supportedTypes: ('image' | 'video' | 'audio')[];
   available: boolean;
   models?: string[];
   error?: string;
@@ -18,34 +19,46 @@ export interface MediaProvider {
 
 /**
  * GET /api/teams/[teamId]/media-providers
- * 
- * Detects available media generation providers by:
- * 1. Checking for API keys (OPENAI_API_KEY, etc.)
- * 2. Scanning installed skills for media generation capabilities
- * 3. Testing local endpoints (Stable Diffusion, ComfyUI, etc.)
- * 4. Returning prioritized list of providers
+ *
+ * Returns available media generation providers by checking:
+ * 1. Known driver registry (static manifest with env-var checks)
+ * 2. Auto-discovered skills that have generate_* scripts but no driver
+ * 3. HTTP/local endpoints (Stable Diffusion, ComfyUI)
  */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ teamId: string }> }
 ): Promise<NextResponse<MediaProvider[] | { error: string }>> {
   try {
-    await params; // Await the params (required by Next.js 15+)
+    await params;
+    const env = await loadAllEnvVars();
     const providers: MediaProvider[] = [];
 
-    // 1. Check OpenAI Provider
-    const openaiProviders = await checkOpenAIProvider();
-    providers.push(...openaiProviders);
+    // ── 1. Known drivers from manifest ────────────────────────────────
+    for (const driver of KNOWN_DRIVERS) {
+      const available = isDriverAvailable(driver, env);
+      providers.push({
+        id: `skill-${driver.slug}`,
+        name: driver.displayName,
+        supportedTypes: [driver.mediaType],
+        available,
+        error: available
+          ? undefined
+          : `Missing: ${driver.requiredEnvVars.filter((v) => !env[v]).join(', ')}`,
+        priority: driver.priority,
+      });
+    }
 
-    // 2. Check Skill-based Providers
-    const skillProviders = await checkSkillProviders();
-    providers.push(...skillProviders);
+    // ── 2. Auto-discover additional skills with generate_* scripts ────
+    const knownSlugs = new Set(KNOWN_DRIVERS.map((d) => d.slug));
+    const discovered = await discoverUnknownSkills(knownSlugs);
+    providers.push(...discovered);
 
-    // 3. Check HTTP/Local Providers
+    // ── 3. HTTP/local providers ───────────────────────────────────────
     const httpProviders = await checkHTTPProviders();
     providers.push(...httpProviders);
 
-    // Sort by priority (available providers first, then by priority score)
+    // Sort: available first, then by priority descending
     providers.sort((a, b) => {
       if (a.available && !b.available) return -1;
       if (!a.available && b.available) return 1;
@@ -62,244 +75,131 @@ export async function GET(
   }
 }
 
-async function checkOpenAIProvider(): Promise<MediaProvider[]> {
+/**
+ * Scan skill directories for generate_image/generate_video scripts
+ * that don't already have a known driver.
+ */
+async function discoverUnknownSkills(
+  knownSlugs: Set<string>
+): Promise<MediaProvider[]> {
+  const homedir = process.env.HOME || '/home/control';
+  const skillRoots = [
+    path.join(homedir, '.openclaw', 'skills'),
+    path.join(homedir, '.openclaw', 'workspace', 'skills'),
+    path.join(homedir, '.openclaw', 'workspace'),
+  ];
+
+  const candidates = await collectSkillCandidates(skillRoots, knownSlugs);
+  return candidates;
+}
+
+async function collectSkillCandidates(
+  roots: string[],
+  knownSlugs: Set<string>
+): Promise<MediaProvider[]> {
   const providers: MediaProvider[] = [];
-  
-  try {
-    // Read OpenClaw config to get models
-    const configPath = path.join(process.env.HOME || '/home/control', '.openclaw', 'openclaw.json');
-    const configData = await fs.readFile(configPath, 'utf-8');
-    const config = JSON.parse(configData);
-    
-    // Extract models from config
-    const fallbackModels = config.agents?.defaults?.model?.fallbacks || [];
-    const primaryModel = config.agents?.defaults?.model?.primary;
-    const allModels = [primaryModel, ...fallbackModels].filter(Boolean);
-    
-    // Group models by provider
-    const modelsByProvider: Record<string, string[]> = {};
-    allModels.forEach((model: string) => {
-      if (typeof model === 'string' && model.includes('/')) {
-        const [provider, modelName] = model.split('/');
-        if (!modelsByProvider[provider]) {
-          modelsByProvider[provider] = [];
-        }
-        modelsByProvider[provider].push(modelName);
+  const IMAGE_SCRIPTS = ['generate_image.py', 'generate_image.sh'];
+  const VIDEO_SCRIPTS = ['generate_video.py', 'generate_video.sh'];
+  const AUDIO_SCRIPTS = ['generate_audio.py', 'generate_audio.sh'];
+
+  for (const root of roots) {
+    const entries = await safeReaddir(root);
+    for (const name of entries) {
+      if (knownSlugs.has(name)) continue;
+      const skillDir = path.join(root, name);
+      const provider = await probeSkillDir(skillDir, name, IMAGE_SCRIPTS, VIDEO_SCRIPTS, AUDIO_SCRIPTS);
+      if (provider) {
+        knownSlugs.add(name);
+        providers.push(provider);
       }
-    });
-    
-    // Check OpenAI models (supports image generation)
-    if (modelsByProvider['openai'] || modelsByProvider['openai-codex']) {
-      const openaiModels = [...(modelsByProvider['openai'] || []), ...(modelsByProvider['openai-codex'] || [])];
-      const hasApiKey = !!process.env.OPENAI_API_KEY;
-      
-      providers.push({
-        id: 'openai-models',
-        name: 'OpenAI Models (Image Generation)',
-        supportedTypes: ['image'],
-        available: hasApiKey,
-        models: openaiModels,
-        error: hasApiKey ? undefined : 'OPENAI_API_KEY not configured',
-        priority: 100
-      });
     }
-    
-    // Check for DALL-E specifically
-    const hasApiKey = !!process.env.OPENAI_API_KEY;
-    providers.push({
-      id: 'dalle',
-      name: 'OpenAI DALL-E',
-      supportedTypes: ['image'],
-      available: hasApiKey,
-      models: ['dall-e-2', 'dall-e-3'],
-      error: hasApiKey ? undefined : 'OPENAI_API_KEY not configured',
-      priority: 90
-    });
-    
-  } catch (error) {
-    console.warn('Failed to read OpenClaw config:', error);
-    
-    // Fallback OpenAI provider
-    const hasApiKey = !!process.env.OPENAI_API_KEY;
-    providers.push({
-      id: 'openai-fallback',
-      name: 'OpenAI DALL-E (fallback)',
-      supportedTypes: ['image'],
-      available: hasApiKey,
-      models: ['dall-e-3'],
-      error: hasApiKey ? undefined : 'OPENAI_API_KEY not configured',
-      priority: 80
-    });
   }
-  
   return providers;
 }
 
-async function checkSkillProviders(): Promise<MediaProvider[]> {
-  const providers: MediaProvider[] = [];
-  
+async function safeReaddir(dir: string): Promise<string[]> {
+  try { return await fs.readdir(dir); } catch { return []; }
+}
+
+async function probeSkillDir(
+  skillDir: string,
+  name: string,
+  imageScripts: string[],
+  videoScripts: string[],
+  audioScripts: string[]
+): Promise<MediaProvider | null> {
   try {
-    // Scan multiple skills directories
-    const skillsDirs = [
-      path.join(process.env.HOME || '/home/control', '.openclaw/workspace/skills'),
-      path.join(process.env.HOME || '/home/control', '.openclaw/skills')
-    ];
-    
-    const allSkills: { name: string; description: string; hasMedia: boolean; supportedTypes: string[]; available: boolean; error?: string }[] = [];
-    
-    for (const skillsDir of skillsDirs) {
+    const stat = await fs.stat(skillDir);
+    if (!stat.isDirectory()) return null;
+  } catch { return null; }
+
+  const types: ('image' | 'video' | 'audio')[] = [];
+  if (await hasAnyScript(skillDir, imageScripts)) types.push('image');
+  if (await hasAnyScript(skillDir, videoScripts)) types.push('video');
+  if (await hasAnyScript(skillDir, audioScripts)) types.push('audio');
+
+  if (types.length === 0) return null;
+  return {
+    id: `skill-${name}`,
+    name: formatSkillName(name),
+    supportedTypes: types,
+    available: true,
+    priority: 50,
+  };
+}
+
+/** Check if a skill dir (or its scripts/ subdir) contains any of the candidate scripts */
+async function hasAnyScript(
+  skillDir: string,
+  candidates: string[]
+): Promise<boolean> {
+  const searchDirs = [skillDir, path.join(skillDir, 'scripts')];
+  for (const dir of searchDirs) {
+    for (const c of candidates) {
       try {
-        const skillDirs = await fs.readdir(skillsDir);
-        
-        for (const skillDir of skillDirs) {
-          try {
-            const skillPath = path.join(skillsDir, skillDir);
-            const skillMd = await fs.readFile(path.join(skillPath, 'SKILL.md'), 'utf-8');
-            
-            // Extract skill name and description
-            let skillName = skillDir.replace(/-/g, ' ');
-            let description = '';
-            
-            // Parse frontmatter or description
-            const nameMatch = skillMd.match(/^name:\s*(.+)$/m);
-            if (nameMatch) skillName = nameMatch[1];
-            
-            const descMatch = skillMd.match(/^description:\s*(.+)$/m);
-            if (descMatch) description = descMatch[1].replace(/"/g, '');
-            
-            // Check for media generation capabilities
-            // Also check if skill has generate_video.py or generate_image.py scripts
-            let hasMediaScript = false;
-            try {
-              const scriptFiles = await fs.readdir(path.join(skillPath, 'scripts'));
-              hasMediaScript = scriptFiles.some(f => /^generate_(video|image|audio)\./i.test(f));
-            } catch { /* no scripts dir */ }
-            if (!hasMediaScript) {
-              try {
-                const topFiles = await fs.readdir(skillPath);
-                hasMediaScript = topFiles.some(f => /^generate_(video|image|audio)\./i.test(f));
-              } catch { /* ignore */ }
-            }
-            
-            const hasImageGen = hasMediaScript ||
-                               /\b(image|picture|photo|visual|media|video|audio)s?\b.*\b(generat|creat|make|produc)/i.test(skillMd) ||
-                               /\b(generat|creat|make|produc)\w*.*\b(image|picture|photo|visual|media|video|audio)/i.test(skillMd) ||
-                               /dall.?e|stable.?diffusion|midjourney|cellcog|any.?to.?any|runway|kling|luma/i.test(skillMd);
-            
-            if (hasImageGen) {
-              const supportedTypes: string[] = [];
-              if (/\b(image|picture|photo|visual)\b/i.test(skillMd)) supportedTypes.push('image');
-              if (/\bvideo\b/i.test(skillMd)) supportedTypes.push('video');
-              if (/\baudio\b/i.test(skillMd)) supportedTypes.push('audio');
-              if (supportedTypes.length === 0) supportedTypes.push('image'); // default
-              
-              // Check for API key requirements (auto-detect any *_API_KEY or *_API_SECRET mentions)
-              let available = true;
-              let error: string | undefined;
-              
-              const envVarPattern = /\b([A-Z][A-Z0-9_]*(?:_API_KEY|_API_SECRET|_SECRET))\b/g;
-              let envMatch;
-              while ((envMatch = envVarPattern.exec(skillMd)) !== null) {
-                const envVar = envMatch[1];
-                if (!process.env[envVar]) {
-                  available = false;
-                  error = `${envVar} required`;
-                  break;
-                }
-              }
-              
-              allSkills.push({
-                name: skillName,
-                description: description || `${skillName} skill`,
-                hasMedia: true,
-                supportedTypes,
-                available,
-                error
-              });
-            }
-          } catch {
-            // Skip invalid skills
-          }
-        }
+        await fs.access(path.join(dir, c));
+        return true;
       } catch {
-        // Skills directory doesn't exist or is inaccessible
+        /* not found */
       }
     }
-    
-    // Create providers from detected skills
-    allSkills.forEach((skill, index) => {
-      providers.push({
-        id: `skill-${skill.name.toLowerCase().replace(/\s+/g, '-')}`,
-        name: skill.name,
-        supportedTypes: skill.supportedTypes as ('image' | 'video')[],
-        available: skill.available,
-        error: skill.error,
-        priority: 70 + index // Give different priorities to different skills
-      });
-    });
-    
-    // Add fallback skill provider entry if no skills found
-    if (providers.length === 0) {
-      providers.push({
-        id: 'skills-empty',
-        name: 'OpenClaw Skills',
-        supportedTypes: ['image'],
-        available: false,
-        error: 'No media generation skills installed',
-        priority: 60
-      });
-    }
-    
-  } catch (error) {
-    console.warn('Skill detection failed:', error);
   }
-  
-  return providers;
+  return false;
+}
+
+/** Convert slug to display name: "nano-banana-pro" → "Nano Banana Pro" */
+function formatSkillName(slug: string): string {
+  return slug
+    .replace(/^skill-/, '')
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 async function checkHTTPProviders(): Promise<MediaProvider[]> {
   const providers: MediaProvider[] = [];
-  
-  // Check common local endpoints
+
   const endpoints = [
-    { 
-      url: 'http://localhost:7860',
-      name: 'Stable Diffusion WebUI',
-      priority: 90
-    },
-    { 
-      url: 'http://localhost:8188', 
-      name: 'ComfyUI',
-      priority: 85
-    }
+    { url: 'http://localhost:7860', name: 'Stable Diffusion WebUI', priority: 40 },
+    { url: 'http://localhost:8188', name: 'ComfyUI', priority: 35 },
   ];
-  
-  for (const endpoint of endpoints) {
+
+  for (const ep of endpoints) {
     try {
-      // Quick health check with timeout
-      const response = await fetch(`${endpoint.url}/`, { 
+      const res = await fetch(`${ep.url}/`, {
         method: 'HEAD',
-        signal: AbortSignal.timeout(2000)
+        signal: AbortSignal.timeout(2000),
       });
-      
       providers.push({
-        id: `http-${endpoint.url.replace(/[^\w]/g, '-')}`,
-        name: endpoint.name,
+        id: `http-${ep.url.replace(/[^\w]/g, '-')}`,
+        name: ep.name,
         supportedTypes: ['image'],
-        available: response.ok,
-        priority: endpoint.priority
+        available: res.ok,
+        priority: ep.priority,
       });
     } catch {
-      providers.push({
-        id: `http-${endpoint.url.replace(/[^\w]/g, '-')}`,
-        name: endpoint.name,
-        supportedTypes: ['image'],
-        available: false,
-        error: `${endpoint.name} not running`,
-        priority: endpoint.priority
-      });
+      // Don't add unavailable HTTP providers — they just clutter the dropdown
     }
   }
-  
+
   return providers;
 }
