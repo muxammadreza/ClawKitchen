@@ -42,7 +42,13 @@ openclaw gateway restart
 
 **Step 4: Select in workflow editor**
 
-In the media-image node config, select `nano-banana-image` as the provider.
+Install the skill from ClawHub:
+
+```bash
+clawhub install nano-banana-pro
+```
+
+In the media-image node config, select `nano-banana-pro` as the provider.
 
 **Models available:**
 - `gemini-2.5-flash-image` — Fast, efficient (default)
