@@ -70,10 +70,10 @@
     ".next/package.json"
   ],
   "dependencies": {
+    "@jiggai/kitchen-plugin-marketing": "^0.2.1",
     "better-sqlite3": "^12.8.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
-    "kitchen-plugin-marketing": "file:../kitchen-plugin-marketing",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
