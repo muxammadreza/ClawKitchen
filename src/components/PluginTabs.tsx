@@ -152,7 +152,9 @@ export default function PluginTabs({ teamType, teamId }: PluginTabsProps) {
     }
 
     // Pass team context into plugin tabs so they can call the plugin API.
-    return React.createElement(TabComponent, { teamId, teamType, pluginId: plugin.id });
+    // Plugin tabs are dynamically loaded bundles — cast to accept props.
+    const Comp = TabComponent as React.ComponentType<Record<string, unknown>>;
+    return React.createElement(Comp, { teamId, teamType, pluginId: plugin.id });
   };
 
   /* ---- loading state ---- */
