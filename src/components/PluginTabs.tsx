@@ -115,6 +115,20 @@ export default function PluginTabs({ teamType }: PluginTabsProps) {
     }
   }, [loadedTabs]);
 
+  /* ---- auto-load first tab for each plugin on discovery ---- */
+  useEffect(() => {
+    for (const plugin of plugins) {
+      const tabId = activeTab[plugin.id];
+      if (tabId) {
+        const tabKey = `${plugin.id}:${tabId}`;
+        if (!loadedTabs.has(tabKey)) {
+          void loadPluginTab(plugin.id, tabId);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plugins]);
+
   const handleTabClick = useCallback(async (pluginId: string, tabId: string) => {
     setActiveTab(prev => ({ ...prev, [pluginId]: tabId }));
     const tabKey = `${pluginId}:${tabId}`;
@@ -174,7 +188,7 @@ export default function PluginTabs({ teamType }: PluginTabsProps) {
       {plugins.map(plugin => (
         <Section key={plugin.id} title={plugin.name} defaultOpen>
           {/* Pill tabs */}
-          <div className="mb-4 flex flex-wrap gap-2">
+          <div className="mt-2 mb-4 flex flex-wrap gap-2">
             {plugin.tabs.map(tab => {
               const isActive = activeTab[plugin.id] === tab.id;
               return (
