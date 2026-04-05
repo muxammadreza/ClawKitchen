@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, resolve } from 'path';
+import { homedir } from 'os';
 import Database from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
@@ -40,26 +41,28 @@ const configTable = sqliteTable('config', {
 let cachedPlugins: Map<string, KitchenPluginManifest> | null = null;
 
 /**
- * Discover all Kitchen plugins in node_modules
+ * The canonical location for Kitchen plugins installed via CLI.
  */
-export function discoverKitchenPlugins(): Map<string, KitchenPluginManifest> {
-  if (cachedPlugins) return cachedPlugins;
+export function getPluginsDir(): string {
+  return join(homedir(), '.openclaw', 'kitchen', 'plugins');
+}
 
-  const plugins = new Map<string, KitchenPluginManifest>();
-  const nodeModulesPath = resolve('node_modules');
+/**
+ * Scan a node_modules directory for Kitchen plugin manifests.
+ */
+function scanNodeModules(nodeModulesPath: string, plugins: Map<string, KitchenPluginManifest>): void {
+  if (!existsSync(nodeModulesPath)) return;
 
-  if (!existsSync(nodeModulesPath)) {
-    console.warn('No node_modules directory found for plugin discovery');
-    cachedPlugins = plugins;
-    return plugins;
+  let entries: string[];
+  try {
+    entries = readdirSync(nodeModulesPath);
+  } catch {
+    return;
   }
 
-  // Check top-level packages and scoped packages
-  const entries = readdirSync(nodeModulesPath);
-  
   for (const entry of entries) {
     const entryPath = join(nodeModulesPath, entry);
-    
+
     if (entry.startsWith('@')) {
       // Scoped package - check subdirectories
       try {
@@ -67,7 +70,7 @@ export function discoverKitchenPlugins(): Map<string, KitchenPluginManifest> {
         for (const scopedEntry of scopedEntries) {
           const packagePath = join(entryPath, scopedEntry);
           const manifest = loadPluginManifest(packagePath);
-          if (manifest) {
+          if (manifest && !plugins.has(manifest.id)) {
             plugins.set(manifest.id, manifest);
           }
         }
@@ -77,11 +80,31 @@ export function discoverKitchenPlugins(): Map<string, KitchenPluginManifest> {
     } else {
       // Regular package
       const manifest = loadPluginManifest(entryPath);
-      if (manifest) {
+      if (manifest && !plugins.has(manifest.id)) {
         plugins.set(manifest.id, manifest);
       }
     }
   }
+}
+
+/**
+ * Discover all Kitchen plugins.
+ *
+ * Search order (first match wins per plugin id):
+ * 1. ~/.openclaw/kitchen/plugins/node_modules/  (CLI-installed plugins)
+ * 2. CWD/node_modules/  (dev / legacy fallback)
+ */
+export function discoverKitchenPlugins(): Map<string, KitchenPluginManifest> {
+  if (cachedPlugins) return cachedPlugins;
+
+  const plugins = new Map<string, KitchenPluginManifest>();
+
+  // Primary: dedicated plugins directory
+  const pluginsDir = getPluginsDir();
+  scanNodeModules(join(pluginsDir, 'node_modules'), plugins);
+
+  // Fallback: CWD node_modules (useful for dev mode)
+  scanNodeModules(resolve('node_modules'), plugins);
 
   cachedPlugins = plugins;
   return plugins;

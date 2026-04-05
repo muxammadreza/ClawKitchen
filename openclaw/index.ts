@@ -1,7 +1,10 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import http from "node:http";
 import path from "node:path";
+import fs from "node:fs";
+import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 
 // Next is already a dependency of ClawKitchen.
 import next from "next";
@@ -279,6 +282,92 @@ const kitchenPlugin = {
             const host = String(cfg.host || "127.0.0.1").trim();
             const port = Number(cfg.port || 7777);
             console.log(`http://${host}:${port}`);
+          });
+
+        // --- Kitchen plugin management CLI ---
+        const pluginsDir = path.join(homedir(), '.openclaw', 'kitchen', 'plugins');
+
+        function listInstalledPlugins(): { id: string; name: string; version: string; teamTypes: string[] }[] {
+          const nmDir = path.join(pluginsDir, 'node_modules');
+          if (!fs.existsSync(nmDir)) return [];
+          const found: { id: string; name: string; version: string; teamTypes: string[] }[] = [];
+          const entries = fs.readdirSync(nmDir);
+          for (const entry of entries) {
+            const dirs = entry.startsWith('@')
+              ? fs.readdirSync(path.join(nmDir, entry)).map(s => path.join(nmDir, entry, s))
+              : [path.join(nmDir, entry)];
+            for (const d of dirs) {
+              try {
+                const raw = JSON.parse(fs.readFileSync(path.join(d, 'package.json'), 'utf8'));
+                if (raw.kitchenPlugin?.id) {
+                  found.push({
+                    id: raw.kitchenPlugin.id,
+                    name: raw.kitchenPlugin.name || raw.name,
+                    version: raw.version || '0.0.0',
+                    teamTypes: raw.kitchenPlugin.teamTypes || [],
+                  });
+                }
+              } catch { /* skip non-plugin packages */ }
+            }
+          }
+          return found;
+        }
+
+        const pluginsCmd = cmd
+          .command("plugins")
+          .description("Manage Kitchen plugins");
+
+        pluginsCmd
+          .command("list")
+          .description("List installed Kitchen plugins")
+          .action(() => {
+            const found = listInstalledPlugins();
+            if (!found.length) {
+              console.log('No Kitchen plugins installed.');
+              return;
+            }
+            console.log(JSON.stringify(found, null, 2));
+          });
+
+        pluginsCmd
+          .command("install <package>")
+          .description("Install a Kitchen plugin from npm (e.g. @jiggai/kitchen-plugin-marketing)")
+          .action((pkg: string) => {
+            fs.mkdirSync(pluginsDir, { recursive: true });
+            // Ensure a package.json exists so npm install --save works
+            const pjPath = path.join(pluginsDir, 'package.json');
+            if (!fs.existsSync(pjPath)) {
+              fs.writeFileSync(pjPath, JSON.stringify({ name: 'kitchen-plugins', version: '1.0.0', private: true, dependencies: {} }, null, 2));
+            }
+            console.log(`Installing ${pkg}...`);
+            try {
+              // eslint-disable-next-line sonarjs/os-command -- user-initiated CLI, pkg comes from commander argv
+              execSync('npm install --save ' + pkg, { cwd: pluginsDir, stdio: 'inherit' });
+              console.log(`\n✅ Plugin ${pkg} installed. Restart the gateway to activate.`);
+            } catch {
+              console.error(`\n❌ Failed to install ${pkg}. Check the package name and try again.`);
+              process.exit(1);
+            }
+          });
+
+        pluginsCmd
+          .command("remove <package>")
+          .description("Remove a Kitchen plugin")
+          .action((pkg: string) => {
+            const pjPath = path.join(pluginsDir, 'package.json');
+            if (!fs.existsSync(pjPath)) {
+              console.error('No plugins installed.');
+              process.exit(1);
+            }
+            console.log(`Removing ${pkg}...`);
+            try {
+              // eslint-disable-next-line sonarjs/os-command -- user-initiated CLI, pkg comes from commander argv
+              execSync('npm uninstall ' + pkg, { cwd: pluginsDir, stdio: 'inherit' });
+              console.log(`\n✅ Plugin ${pkg} removed. Restart the gateway to apply.`);
+            } catch {
+              console.error(`\n❌ Failed to remove ${pkg}.`);
+              process.exit(1);
+            }
           });
       },
       { commands: ["kitchen"] },
