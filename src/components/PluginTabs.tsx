@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 interface Plugin {
   id: string;
@@ -16,17 +16,45 @@ interface PluginTabsProps {
   teamId: string;
 }
 
-const ICON_MAP: Record<string, string> = {
-  library: '📚',
-  calendar: '📅',
-  chart: '📊',
-  users: '👥',
-  folder: '📁',
-};
+/* ------------------------------------------------------------------ */
+/*  Collapsible section                                                */
+/* ------------------------------------------------------------------ */
+function Section({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="ck-glass">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 p-4 text-left text-sm font-medium text-[color:var(--ck-text-primary)] hover:bg-white/5"
+      >
+        <span
+          className="text-xs text-[color:var(--ck-text-tertiary)] transition-transform"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+        >
+          ▶
+        </span>
+        {title}
+      </button>
+      {open && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  );
+}
 
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
 export default function PluginTabs({ teamType }: PluginTabsProps) {
   const [plugins, setPlugins] = useState<Plugin[]>([]);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Record<string, string>>({});
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -36,11 +64,13 @@ export default function PluginTabs({ teamType }: PluginTabsProps) {
       try {
         const response = await fetch(`/api/plugins?teamType=${encodeURIComponent(teamType)}`);
         const data = await response.json();
-        if (data.success) {
+        if (data.success && Array.isArray(data.plugins)) {
           setPlugins(data.plugins);
-          if (data.plugins.length > 0 && data.plugins[0].tabs.length > 0) {
-            setActiveTab(`${data.plugins[0].id}:${data.plugins[0].tabs[0].id}`);
+          const initial: Record<string, string> = {};
+          for (const p of data.plugins) {
+            if (p.tabs.length > 0) initial[p.id] = p.tabs[0].id;
           }
+          setActiveTab(initial);
         }
       } catch (error) {
         console.error('Failed to load plugins:', error);
@@ -71,7 +101,7 @@ export default function PluginTabs({ teamType }: PluginTabsProps) {
   }, []);
 
   /* ---- lazy-load a tab bundle ---- */
-  const loadPluginTab = async (pluginId: string, tabId: string) => {
+  const loadPluginTab = useCallback(async (pluginId: string, tabId: string) => {
     const tabKey = `${pluginId}:${tabId}`;
     if (loadedTabs.has(tabKey)) return;
     try {
@@ -83,37 +113,33 @@ export default function PluginTabs({ teamType }: PluginTabsProps) {
     } catch (error) {
       console.error(`Failed to load plugin tab ${pluginId}:${tabId}:`, error);
     }
-  };
+  }, [loadedTabs]);
 
-  const handleTabClick = async (pluginId: string, tabId: string) => {
+  const handleTabClick = useCallback(async (pluginId: string, tabId: string) => {
+    setActiveTab(prev => ({ ...prev, [pluginId]: tabId }));
     const tabKey = `${pluginId}:${tabId}`;
-    setActiveTab(tabKey);
     if (!loadedTabs.has(tabKey)) await loadPluginTab(pluginId, tabId);
-  };
+  }, [loadedTabs, loadPluginTab]);
 
-  /* ---- render active tab component ---- */
-  const renderActiveTab = () => {
-    if (!activeTab) return null;
-    const [pluginId, tabId] = activeTab.split(':');
+  /* ---- render a plugin's active tab ---- */
+  const renderTabContent = (plugin: Plugin) => {
+    const currentTabId = activeTab[plugin.id];
+    if (!currentTabId) return null;
+
+    const tabKey = `${plugin.id}:${currentTabId}`;
     const w = window as unknown as { KitchenPlugin?: { getTab: (p: string, t: string) => React.ComponentType | undefined } };
-    const TabComponent = w.KitchenPlugin?.getTab(pluginId, tabId);
+    const TabComponent = w.KitchenPlugin?.getTab(plugin.id, currentTabId);
 
-    if (!TabComponent) {
+    if (!loadedTabs.has(tabKey) || !TabComponent) {
       return (
-        <div className="ck-glass p-4">
-          <div className="flex items-center justify-center gap-2 py-8 text-sm text-[color:var(--ck-text-tertiary)]">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
-            Loading…
-          </div>
+        <div className="flex items-center justify-center gap-2 py-8 text-sm text-[color:var(--ck-text-tertiary)]">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+          Loading…
         </div>
       );
     }
 
-    return (
-      <div className="ck-glass p-4">
-        {React.createElement(TabComponent)}
-      </div>
-    );
+    return React.createElement(TabComponent);
   };
 
   /* ---- loading state ---- */
@@ -128,65 +154,58 @@ export default function PluginTabs({ teamType }: PluginTabsProps) {
     );
   }
 
-  /* ---- empty state ---- */
-  if (plugins.length === 0) {
-    return (
-      <div className="ck-glass p-4">
-        <div className="py-8 text-center text-sm text-[color:var(--ck-text-tertiary)]">
-          <p>No plugins available for team type: <span className="font-mono">{teamType}</span></p>
-          <p className="mt-2">
-            Install plugins with{' '}
-            <code className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 font-mono text-xs">
-              openclaw kitchen plugins install &lt;package&gt;
-            </code>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  /* ---- collect all tabs across plugins ---- */
-  const allTabs = plugins.flatMap(plugin =>
-    plugin.tabs.map(tab => ({ plugin, tab }))
-  );
-
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="ck-glass p-4">
-        <div className="text-sm font-medium text-[color:var(--ck-text-primary)]">
-          {plugins.length === 1 ? plugins[0].name : 'Plugins'}
+      {/* Install instructions (collapsed by default) */}
+      <Section title="Installing Plugins" defaultOpen={plugins.length === 0}>
+        <div className="space-y-2 text-sm text-[color:var(--ck-text-secondary)]">
+          <p>Install Kitchen plugins via the CLI:</p>
+          <code className="block rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-[color:var(--ck-text-primary)]">
+            openclaw kitchen plugins install &lt;package-name&gt;
+          </code>
+          <p className="text-xs text-[color:var(--ck-text-tertiary)]">
+            Plugins are installed to <span className="font-mono">~/.openclaw/kitchen/plugins/</span> and discovered automatically.
+            Restart Kitchen after installing.
+          </p>
         </div>
-        <div className="mt-1 text-xs text-[color:var(--ck-text-tertiary)]">
-          {plugins.length === 1
-            ? `${allTabs.length} tabs available`
-            : `${plugins.length} plugins · ${allTabs.length} tabs`}
+      </Section>
+
+      {/* One collapsible section per plugin */}
+      {plugins.map(plugin => (
+        <Section key={plugin.id} title={plugin.name} defaultOpen>
+          {/* Pill tabs */}
+          <div className="mb-4 flex flex-wrap gap-2">
+            {plugin.tabs.map(tab => {
+              const isActive = activeTab[plugin.id] === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabClick(plugin.id, tab.id)}
+                  className={
+                    isActive
+                      ? "rounded-[var(--ck-radius-sm)] bg-[var(--ck-accent-red)] px-3 py-2 text-sm font-medium text-white shadow-[var(--ck-shadow-1)]"
+                      : "rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-[color:var(--ck-text-primary)] shadow-[var(--ck-shadow-1)] hover:bg-white/10"
+                  }
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tab content */}
+          {renderTabContent(plugin)}
+        </Section>
+      ))}
+
+      {/* Empty state */}
+      {plugins.length === 0 && (
+        <div className="ck-glass p-4">
+          <div className="py-8 text-center text-sm text-[color:var(--ck-text-tertiary)]">
+            No plugins installed for this team type.
+          </div>
         </div>
-      </div>
-
-      {/* Pill tabs */}
-      <div className="flex flex-wrap gap-2">
-        {allTabs.map(({ plugin, tab }) => {
-          const tabKey = `${plugin.id}:${tab.id}`;
-          const isActive = activeTab === tabKey;
-          return (
-            <button
-              key={tabKey}
-              onClick={() => handleTabClick(plugin.id, tab.id)}
-              className={
-                isActive
-                  ? "rounded-[var(--ck-radius-sm)] bg-[var(--ck-accent-red)] px-3 py-2 text-sm font-medium text-white shadow-[var(--ck-shadow-1)]"
-                  : "rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-[color:var(--ck-text-primary)] shadow-[var(--ck-shadow-1)] hover:bg-white/10"
-              }
-            >
-              {ICON_MAP[tab.icon] || ICON_MAP.folder} {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Active tab content in glass card */}
-      {renderActiveTab()}
+      )}
     </div>
   );
 }
