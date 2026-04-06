@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { discoverKitchenPlugins, createPluginContext } from "@/lib/kitchen-plugins";
+import { createRequire } from "module";
+
+// Build a require() the bundler can't statically analyse, so
+// Turbopack / webpack won't try to resolve plugin paths at build time.
+const _require = createRequire(import.meta.url);
 
 export async function GET(
   request: NextRequest,
@@ -56,8 +61,11 @@ async function handlePluginApiRequest(
       );
     }
 
-    // Load the plugin's API routes module
-    const apiModule = await import(plugin.apiRoutes);
+    // Load the plugin's API routes module at runtime.
+    // createRequire() hides the dynamic path from Turbopack/webpack static analysis.
+    // Clear cache so plugin updates take effect without full restart.
+    delete _require.cache[_require.resolve(plugin.apiRoutes)];
+    const apiModule = _require(plugin.apiRoutes);
     
     // Get team directory from query params or headers
     const teamId = request.nextUrl.searchParams.get('team') || 
