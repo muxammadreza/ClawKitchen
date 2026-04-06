@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { discoverKitchenPlugins, createPluginContext } from "@/lib/kitchen-plugins";
+import { createRequire } from "module";
+
+// createRequire gives us a real require() that works in ESM.
+// new Function hides the dynamic path from Turbopack static analysis.
+const _cjsRequire = createRequire(import.meta.url);
+ 
+const _loadPlugin = new Function("req", "p",
+  "delete req.cache[req.resolve(p)]; return req(p);"
+) as (req: NodeRequire, p: string) => Record<string, unknown>;
 
 export async function GET(
   request: NextRequest,
@@ -55,14 +64,10 @@ async function handlePluginApiRequest(
         { status: 404 }
       );
     }
-    // Load the plugin's API routes module
-    // Load plugin API module at runtime.
-    // Turbopack/webpack static analysis chokes on dynamic paths even with
-    // require() or createRequire(). Function constructor makes the call
-    // fully opaque to the bundler.
-     
-    const _req = new Function("p", "delete require.cache[require.resolve(p)]; return require(p)");
-    const apiModule = _req(plugin.apiRoutes);
+
+    // Load plugin module at runtime — _loadPlugin passes the real require
+    // into a Function-constructed wrapper so Turbopack never sees the path.
+    const apiModule = _loadPlugin(_cjsRequire, plugin.apiRoutes);
     
     // Get team directory from query params or headers
     const teamId = request.nextUrl.searchParams.get('team') || 
@@ -91,7 +96,7 @@ async function handlePluginApiRequest(
         body: method !== 'GET' ? await request.json().catch(() => null) : null,
       };
 
-      const response = await apiModule.handleRequest(pluginRequest, context);
+      const response = await (apiModule.handleRequest as (req: unknown, ctx: unknown) => Promise<{ data?: unknown; status?: number; headers?: Record<string, string> }>)(pluginRequest, context);
       
       return NextResponse.json(response.data || response, {
         status: response.status || 200,
