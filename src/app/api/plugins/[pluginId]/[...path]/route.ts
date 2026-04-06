@@ -55,15 +55,14 @@ async function handlePluginApiRequest(
         { status: 404 }
       );
     }
-
     // Load the plugin's API routes module
-    // Use require() — dynamic import() fails with "expression is too dynamic"
-    // because Next.js/webpack can't resolve absolute filesystem paths at build time.
-    // Clear module cache so plugin updates take effect without full restart.
+    // Load plugin API module at runtime.
+    // Turbopack/webpack static analysis chokes on dynamic paths even with
+    // require() or createRequire(). Function constructor makes the call
+    // fully opaque to the bundler.
      
-    delete require.cache[require.resolve(plugin.apiRoutes)];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const apiModule = require(plugin.apiRoutes);
+    const _req = new Function("p", "delete require.cache[require.resolve(p)]; return require(p)");
+    const apiModule = _req(plugin.apiRoutes);
     
     // Get team directory from query params or headers
     const teamId = request.nextUrl.searchParams.get('team') || 
