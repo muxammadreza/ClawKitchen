@@ -70,4 +70,4 @@ Full documentation available at: https://github.com/JIGGAI/clawkitchen
 ## Support
 
 - GitHub Issues: https://github.com/JIGGAI/clawkitchen/issues  
-- Discord: https://discord.com/invite/clawd
+- Discord: https://discord.gg/qDREsrXKzj
