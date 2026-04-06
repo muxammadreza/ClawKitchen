@@ -389,6 +389,12 @@ export default function WorkflowsEditorClient({
   const [handoffTeams, setHandoffTeams] = useState<string[]>([]);
   const [handoffWorkflows, setHandoffWorkflows] = useState<Record<string, Array<{ id: string; name?: string }>>>({});
   const [handoffTeamsLoading, setHandoffTeamsLoading] = useState(false);
+  // Handoff node: Instagram account options (Postiz integration ids) per Kitchen team
+  const [handoffIgAccounts, setHandoffIgAccounts] = useState<
+    Record<string, Array<{ integrationId: string; displayName: string; username?: string }>>
+  >({});
+  const [handoffIgLoading, setHandoffIgLoading] = useState<Record<string, boolean>>({});
+  const [handoffIgError, setHandoffIgError] = useState<string>("");
   const [showRawConfig, setShowRawConfig] = useState<Record<string, boolean>>({});
 
   const approvalBindingsNeedsKitchenUpdate = useMemo(() => {
@@ -2374,12 +2380,54 @@ export default function WorkflowsEditorClient({
                                 } catch { /* ignore */ }
                               };
 
+                              const getLocalPostizKey = (tid: string) => {
+                                try {
+                                  return localStorage.getItem(`ck-postiz-${tid}`) || '';
+                                } catch {
+                                  return '';
+                                }
+                              };
+
+                              const loadInstagramAccounts = async (tid: string) => {
+                                if (!tid) return;
+                                if (handoffIgAccounts[tid]) return;
+                                if (handoffIgLoading[tid]) return;
+
+                                setHandoffIgLoading((prev) => ({ ...prev, [tid]: true }));
+                                setHandoffIgError('');
+                                try {
+                                  const postizKey = getLocalPostizKey(tid);
+                                  const res = await fetch(`/api/plugins/marketing/drivers?team=${encodeURIComponent(tid)}`, {
+                                    headers: postizKey ? { 'x-postiz-api-key': postizKey } : {},
+                                  });
+                                  const json = await res.json();
+                                  const drivers = Array.isArray(json?.drivers) ? json.drivers : [];
+                                  const ig = drivers
+                                    .filter((d: any) => d?.platform === 'instagram' && d?.backend === 'postiz' && d?.integrationId)
+                                    .map((d: any) => ({
+                                      integrationId: String(d.integrationId),
+                                      displayName: String(d.displayName || 'Instagram'),
+                                      username: d.username ? String(d.username) : undefined,
+                                    }));
+                                  setHandoffIgAccounts((prev) => ({ ...prev, [tid]: ig }));
+                                } catch (e: any) {
+                                  setHandoffIgError(String(e?.message || 'Failed to load Instagram accounts'));
+                                }
+                                setHandoffIgLoading((prev) => ({ ...prev, [tid]: false }));
+                              };
+
+                              const kitchenTeamIdRaw = String(variableMapping.kitchenTeamId ?? '');
+                              const kitchenTeamId = kitchenTeamIdRaw && !kitchenTeamIdRaw.includes('{{') ? kitchenTeamIdRaw : teamId;
+
                               // Trigger data loading
                               if (handoffTeams.length === 0 && !handoffTeamsLoading) {
                                 loadTeams();
                               }
                               if (targetTeamId && !handoffWorkflows[targetTeamId]) {
                                 loadWorkflows(targetTeamId);
+                              }
+                              if (kitchenTeamId && !handoffIgAccounts[kitchenTeamId] && !handoffIgLoading[kitchenTeamId]) {
+                                loadInstagramAccounts(kitchenTeamId);
                               }
 
                               const targetWfs = handoffWorkflows[targetTeamId] || [];
@@ -2392,6 +2440,12 @@ export default function WorkflowsEditorClient({
 
                               const handoffMode = String(cfg.mode ?? 'fire-and-forget');
                               const waitTimeoutMs = typeof cfg.waitTimeoutMs === 'number' ? cfg.waitTimeoutMs as number : 300000;
+
+                              const showIgAccountPicker = targetWorkflowId.toLowerCase().includes('instagram') || Object.prototype.hasOwnProperty.call(variableMapping, 'integrationId');
+                              const integrationIdRaw = String(variableMapping.integrationId ?? '');
+                              const integrationId = integrationIdRaw && !integrationIdRaw.includes('{{') ? integrationIdRaw : '';
+                              const igOptions = kitchenTeamId ? (handoffIgAccounts[kitchenTeamId] || []) : [];
+                              const igLoading = kitchenTeamId ? !!handoffIgLoading[kitchenTeamId] : false;
 
                               return (
                                 <div className="space-y-2">
@@ -2464,6 +2518,56 @@ export default function WorkflowsEditorClient({
                                       </select>
                                       {targetTeamId && !handoffWorkflows[targetTeamId] ? (
                                         <div className="mt-1 text-[10px] text-[color:var(--ck-text-tertiary)]">Loading workflows…</div>
+                                      ) : null}
+                                    </label>
+                                  ) : null}
+
+                                  {showIgAccountPicker ? (
+                                    <label className="block">
+                                      <div className="flex items-center justify-between">
+                                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--ck-text-tertiary)]">instagram account (optional)</div>
+                                        <button
+                                          type="button"
+                                          onClick={() => kitchenTeamId && loadInstagramAccounts(kitchenTeamId)}
+                                          className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-[color:var(--ck-text-primary)] hover:bg-white/10"
+                                        >
+                                          Refresh
+                                        </button>
+                                      </div>
+                                      <select
+                                        value={integrationId}
+                                        onChange={(e) => {
+                                          const next = e.target.value;
+                                          const nextVm = { ...variableMapping };
+                                          if (next) nextVm.integrationId = next;
+                                          else delete nextVm.integrationId;
+                                          updateCfg({ variableMapping: nextVm });
+                                        }}
+                                        disabled={!kitchenTeamId || igLoading}
+                                        className="mt-1 w-full rounded-[var(--ck-radius-sm)] border border-white/10 bg-black/25 px-2 py-1 text-xs text-[color:var(--ck-text-primary)] disabled:opacity-50"
+                                      >
+                                        <option value="">Auto (first connected)</option>
+                                        {igOptions.map((opt) => (
+                                          <option key={opt.integrationId} value={opt.integrationId}>
+                                            {opt.displayName}{opt.username ? ` — ${opt.username}` : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {!kitchenTeamIdRaw || kitchenTeamIdRaw.includes('{{') ? (
+                                        <div className="mt-1 text-[10px] text-[color:var(--ck-text-tertiary)]">
+                                          To load accounts, set <span className="font-mono">variableMapping.kitchenTeamId</span> to a literal team id (not a template).
+                                        </div>
+                                      ) : null}
+                                      {igLoading ? (
+                                        <div className="mt-1 text-[10px] text-[color:var(--ck-text-tertiary)]">Loading Instagram accounts…</div>
+                                      ) : null}
+                                      {!igLoading && kitchenTeamId && igOptions.length === 0 ? (
+                                        <div className="mt-1 text-[10px] text-[color:var(--ck-text-tertiary)]">
+                                          No connected Instagram accounts found. Open Marketing → Accounts and connect both IG accounts in Postiz.
+                                        </div>
+                                      ) : null}
+                                      {handoffIgError ? (
+                                        <div className="mt-1 text-[10px] text-red-300">{handoffIgError}</div>
                                       ) : null}
                                     </label>
                                   ) : null}
