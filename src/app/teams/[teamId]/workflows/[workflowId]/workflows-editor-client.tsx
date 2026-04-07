@@ -389,6 +389,8 @@ export default function WorkflowsEditorClient({
   const [handoffTeams, setHandoffTeams] = useState<string[]>([]);
   const [handoffWorkflows, setHandoffWorkflows] = useState<Record<string, Array<{ id: string; name?: string }>>>({});
   const [handoffTeamsLoading, setHandoffTeamsLoading] = useState(false);
+  const [handoffIgAccounts, setHandoffIgAccounts] = useState<Record<string, Array<{ integrationId: string; displayName: string; username?: string }>>>({});
+  const [handoffIgLoading, setHandoffIgLoading] = useState<Record<string, boolean>>({});
   const [showRawConfig, setShowRawConfig] = useState<Record<string, boolean>>({});
 
   const approvalBindingsNeedsKitchenUpdate = useMemo(() => {
@@ -2374,6 +2376,32 @@ export default function WorkflowsEditorClient({
                                 } catch { /* ignore */ }
                               };
 
+                              const loadInstagramAccounts = async (tid: string) => {
+                                if (!tid || handoffIgAccounts[tid] || handoffIgLoading[tid]) return;
+                                setHandoffIgLoading((prev) => ({ ...prev, [tid]: true }));
+                                try {
+                                  const postizKey = (() => { try { const s = localStorage.getItem(`ck-postiz-${tid}`); return s ? JSON.parse(s).apiKey || '' : ''; } catch { return ''; } })();
+                                  const res = await fetch(`/api/plugins/marketing/drivers?team=${encodeURIComponent(tid)}`, {
+                                    headers: postizKey ? { 'x-postiz-api-key': postizKey } : {},
+                                  });
+                                  const json = await res.json();
+                                  const drivers = Array.isArray(json?.drivers) ? json.drivers : [];
+                                  const ig = drivers
+                                    .filter((d: Record<string, unknown>) => d?.platform === 'instagram' && d?.backend === 'postiz' && d?.integrationId)
+                                    .map((d: Record<string, unknown>) => ({
+                                      integrationId: String(d.integrationId),
+                                      displayName: String(d.displayName || 'Instagram'),
+                                      username: d.username ? String(d.username) : undefined,
+                                    }));
+                                  setHandoffIgAccounts((prev) => ({ ...prev, [tid]: ig }));
+                                } catch { /* ignore */ }
+                                setHandoffIgLoading((prev) => ({ ...prev, [tid]: false }));
+                              };
+
+                              // Resolve kitchenTeamId from variable mapping (if literal)
+                              const kitchenTeamIdRaw = String(variableMapping.kitchenTeamId ?? '');
+                              const kitchenTeamId = kitchenTeamIdRaw && !kitchenTeamIdRaw.includes('{{') ? kitchenTeamIdRaw : teamId;
+
                               // Trigger data loading
                               if (handoffTeams.length === 0 && !handoffTeamsLoading) {
                                 loadTeams();
@@ -2381,9 +2409,19 @@ export default function WorkflowsEditorClient({
                               if (targetTeamId && !handoffWorkflows[targetTeamId]) {
                                 loadWorkflows(targetTeamId);
                               }
+                              // Auto-load IG accounts when target workflow looks Instagram-related
+                              const showIgPicker = targetWorkflowId.toLowerCase().includes('instagram') || Object.prototype.hasOwnProperty.call(variableMapping, 'integrationId') || Object.prototype.hasOwnProperty.call(variableMapping, 'integrationIds');
+                              if (showIgPicker && kitchenTeamId && !handoffIgAccounts[kitchenTeamId] && !handoffIgLoading[kitchenTeamId]) {
+                                loadInstagramAccounts(kitchenTeamId);
+                              }
 
                               const targetWfs = handoffWorkflows[targetTeamId] || [];
                               const mappingEntries = Object.entries(variableMapping);
+                              const igOptions = kitchenTeamId ? (handoffIgAccounts[kitchenTeamId] || []) : [];
+                              const igLoading = kitchenTeamId ? !!handoffIgLoading[kitchenTeamId] : false;
+
+                              // Current selection: integrationId (single) or integrationIds (multi, comma-separated)
+                              const currentIds = String(variableMapping.integrationIds ?? variableMapping.integrationId ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
 
                               const updateCfg = (patch: Record<string, unknown>) => {
                                 const nextCfg = { ...cfg, ...patch };
@@ -2466,6 +2504,64 @@ export default function WorkflowsEditorClient({
                                         <div className="mt-1 text-[10px] text-[color:var(--ck-text-tertiary)]">Loading workflows…</div>
                                       ) : null}
                                     </label>
+                                  ) : null}
+
+                                  {showIgPicker ? (
+                                    <div>
+                                      <div className="flex items-center justify-between">
+                                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--ck-text-tertiary)]">instagram accounts</div>
+                                        <button
+                                          type="button"
+                                          onClick={() => { setHandoffIgAccounts((prev) => { const next = { ...prev }; delete next[kitchenTeamId]; return next; }); loadInstagramAccounts(kitchenTeamId); }}
+                                          className="rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-[color:var(--ck-text-primary)] hover:bg-white/10"
+                                        >
+                                          Refresh
+                                        </button>
+                                      </div>
+                                      {igLoading ? (
+                                        <div className="mt-1 text-[10px] text-[color:var(--ck-text-tertiary)]">Loading accounts…</div>
+                                      ) : igOptions.length === 0 ? (
+                                        <div className="mt-1 text-[10px] text-[color:var(--ck-text-tertiary)]">
+                                          No Instagram accounts found. Open Marketing → Accounts and connect IG in Postiz.
+                                        </div>
+                                      ) : (
+                                        <div className="mt-1 space-y-1">
+                                          {igOptions.map((opt) => {
+                                            const checked = currentIds.includes(opt.integrationId);
+                                            return (
+                                              <label key={opt.integrationId} className="flex items-center gap-2 cursor-pointer rounded-[var(--ck-radius-sm)] border border-white/10 bg-white/5 px-2 py-1 hover:bg-white/10">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={checked}
+                                                  onChange={() => {
+                                                    const next = checked
+                                                      ? currentIds.filter((id: string) => id !== opt.integrationId)
+                                                      : [...currentIds, opt.integrationId];
+                                                    const nextVm = { ...variableMapping };
+                                                    // Use integrationIds (plural) for multi-select
+                                                    delete nextVm.integrationId;
+                                                    if (next.length > 0) {
+                                                      nextVm.integrationIds = next.join(',');
+                                                    } else {
+                                                      delete nextVm.integrationIds;
+                                                    }
+                                                    updateCfg({ variableMapping: nextVm });
+                                                  }}
+                                                  className="accent-[var(--ck-accent-red)]"
+                                                />
+                                                <div>
+                                                  <div className="text-xs text-[color:var(--ck-text-primary)]">{opt.displayName}</div>
+                                                  {opt.username ? <div className="text-[10px] text-[color:var(--ck-text-tertiary)]">{opt.username}</div> : null}
+                                                </div>
+                                              </label>
+                                            );
+                                          })}
+                                          <div className="text-[9px] text-[color:var(--ck-text-tertiary)]">
+                                            {currentIds.length === 0 ? 'None selected — will use first connected account.' : `${currentIds.length} account${currentIds.length > 1 ? 's' : ''} selected.`}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
                                   ) : null}
 
                                   <div>
