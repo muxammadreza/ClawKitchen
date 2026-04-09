@@ -312,19 +312,19 @@ export default function AgentEditor({ agentId, returnTo }: { agentId: string; re
   }
 
   // Initial load only gates the minimal state (agent exists). Files/skills stream in.
-  if (loading) return <div className="ck-card mx-auto max-w-4xl p-6">Loading…</div>;
-  if (!agent) return <div className="ck-card mx-auto max-w-4xl p-6">Agent not found: {agentId}</div>;
+  if (loading) return <div className="w-full">Loading…</div>;
+  if (!agent) return <div className="w-full">Agent not found: {agentId}</div>;
 
   return (
-    <div className="ck-card mx-auto max-w-4xl p-6 sm:p-8">
+    <div className="w-full">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Agent editor</h1>
-          <div className="mt-1 text-xs text-[color:var(--ck-text-secondary)]">
+          <h1 className="text-2xl font-semibold tracking-tight">{agent.identityName || agent.id}</h1>
+          <p className="mt-1 text-sm font-mono text-[color:var(--ck-text-tertiary)]">
             {agent.id}
-            {agent.isDefault ? " • default" : ""}
-            {agent.model ? ` • ${agent.model}` : ""}
-          </div>
+            {agent.isDefault ? " · default" : ""}
+            {agent.model ? ` · ${agent.model}` : ""}
+          </p>
         </div>
         <button
           type="button"
