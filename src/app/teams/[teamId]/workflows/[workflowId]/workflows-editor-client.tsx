@@ -773,8 +773,8 @@ export default function WorkflowsEditorClient({
     URL.revokeObjectURL(url);
   }
 
-  if (status.kind === "loading") return <div className="ck-glass w-full p-6">Loading…</div>;
-  if (status.kind === "error") return <div className="ck-glass w-full p-6">{status.error}</div>;
+  if (status.kind === "loading") return <div className="w-full">Loading…</div>;
+  if (status.kind === "error") return <div className="w-full">{status.error}</div>;
 
   // (section collapse uses native <details> to keep this file simple)
   const llmHelp = llmTaskEnabled === false ? (

@@ -311,7 +311,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
       <div className="flex h-dvh w-dvw overflow-hidden">
-        <aside className={`flex shrink-0 flex-col border-r border-[color:var(--ck-border-subtle)] bg-[color:var(--ck-bg-glass)] backdrop-blur-[var(--ck-glass-blur)] ${sideWidth}`}>
+        <aside className={`flex shrink-0 flex-col border-r border-[color:var(--ck-border-subtle)] bg-[color:var(--ck-bg-soft)]/95 backdrop-blur-[var(--ck-glass-blur)] ${sideWidth}`}>
           <div className="flex h-14 items-center justify-between gap-2 border-b border-[color:var(--ck-border-subtle)] px-3">
             <Link href="/" className="text-sm font-semibold tracking-tight" title="Home">
               {collapsed ? "CK" : "Claw Kitchen"}
@@ -429,7 +429,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         <div className="min-w-0 flex-1">
-          <main className="h-full overflow-auto p-4 md:p-6">
+          <main className="h-full overflow-auto px-6 py-5 lg:px-10">
             <ErrorBoundary>{children}</ErrorBoundary>
           </main>
         </div>

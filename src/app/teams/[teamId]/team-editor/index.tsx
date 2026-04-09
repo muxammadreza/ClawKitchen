@@ -401,7 +401,7 @@ export default function TeamEditor({ teamId, initialTab }: { teamId: string; ini
   }
 
   return (
-    <div className="ck-glass w-full p-6 sm:p-8">
+    <div className="w-full">
       <h1 className="text-2xl font-semibold tracking-tight">Team editor</h1>
       <p className="mt-2 text-sm text-[color:var(--ck-text-secondary)]">
         Bootstrap a <strong>custom team recipe</strong> for this installed team, without modifying builtin recipes.
