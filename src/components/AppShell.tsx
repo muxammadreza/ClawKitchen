@@ -329,18 +329,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 className="w-full rounded-lg bg-white/5 px-2 py-2 text-xs font-medium text-[color:var(--ck-text-secondary)] hover:bg-white/10"
                 title={selectedTeamId ? `Team: ${selectedTeamId}` : "Select team"}
-                onClick={() => {
-                  const id = teamIds[0] || "";
-                  if (!id) return;
-                  setStoredTeamId(id);
-                  try {
-                    localStorage.setItem("ck-selected-team", id);
-                  } catch {
-                    // ignore
-                  }
-
-                  syncTeamToCurrentUrl(id);
-                }}
+                onClick={toggleCollapsed}
               >
                 👥
               </button>
@@ -411,7 +400,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center justify-between gap-2 border-t border-[color:var(--ck-border-subtle)] p-2">
             <a
-              href="https://github.com/JIGGAI/ClawRecipes/tree/main/docs"
+              href="https://docs.clawkitchen.ai"
               target="_blank"
               rel="noreferrer"
               className={
