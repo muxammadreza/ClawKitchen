@@ -636,6 +636,7 @@ async function normalizeRunFile(
         const approvalRaw = await fs.readFile(approvalFile, "utf8");
         const approvalData = JSON.parse(approvalRaw) as {
           nodeId?: string;
+          state?: string;
           status?: string;
           requestedAt?: string;
           decidedAt?: string;
@@ -645,10 +646,12 @@ async function normalizeRunFile(
         };
 
         if (approvalData.nodeId) {
-          const state = 
-            approvalData.status === "approved" ? "approved" as const :
-            approvalData.status === "rejected" ? "changes_requested" as const :
-            approvalData.status === "canceled" ? "canceled" as const :
+          // The approval file uses "state" (ClawRecipes format), not "status"
+          const raw = approvalData.state ?? approvalData.status ?? "";
+          const state =
+            raw === "approved" ? "approved" as const :
+            raw === "rejected" ? "changes_requested" as const :
+            raw === "canceled" ? "canceled" as const :
             "pending" as const;
 
           approval = {
