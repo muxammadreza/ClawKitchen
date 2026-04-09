@@ -115,7 +115,7 @@ export function TeamAgentsTab(props: TeamAgentsTabProps) {
       </div>
 
       <div className="mt-6">
-        <div className="text-xs font-medium text-[color:var(--ck-text-secondary)]">Detected installed team agents (read-only)</div>
+        <div className="text-xs font-medium text-[color:var(--ck-text-secondary)]">Installed team agents</div>
         <ul className="mt-2 space-y-2">
           {teamAgents.length ? (
             teamAgents.map((a) => (
