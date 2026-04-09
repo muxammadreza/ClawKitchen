@@ -402,10 +402,8 @@ export default function TeamEditor({ teamId, initialTab }: { teamId: string; ini
 
   return (
     <div className="w-full">
-      <h1 className="text-2xl font-semibold tracking-tight">Team editor</h1>
-      <p className="mt-2 text-sm text-[color:var(--ck-text-secondary)]">
-        Bootstrap a <strong>custom team recipe</strong> for this installed team, without modifying builtin recipes.
-      </p>
+      <h1 className="text-2xl font-semibold tracking-tight">{lockedFromName || teamId}</h1>
+      <p className="mt-1 text-sm font-mono text-[color:var(--ck-text-tertiary)]">{teamId}</p>
 
 
       <div className="mt-6 flex flex-wrap gap-2">
