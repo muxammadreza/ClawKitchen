@@ -36,12 +36,12 @@ ClawKitchen can be loaded as an OpenClaw plugin so it runs locally on the orches
 
 ```bash
 openclaw plugins install @jiggai/kitchen
-
-# If you use a plugin allowlist (plugins.allow), you must explicitly trust it:
-openclaw config get plugins.allow --json
-# then add "kitchen" (and "recipes") and set it back, e.g.
-openclaw config set plugins.allow --json '["memory-core","telegram","recipes","kitchen"]'
+openclaw plugins enable kitchen
+openclaw gateway restart
+openclaw plugins list
 ```
+
+> If you see `plugins.allow is empty; discovered non-bundled plugins may auto-load`, the `enable` command above adds kitchen to your allowlist and suppresses the warning.
 
 Edit your OpenClaw config (`~/.openclaw/openclaw.json`) and add:
 
