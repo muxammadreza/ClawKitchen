@@ -219,10 +219,10 @@ export default function RunDetailClient({
                     setActionBusy(true);
                     setActionError("");
                     try {
-                      await fetchJson(`/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(workflowId)}`, {
+                      await fetchJson("/api/teams/workflow-runs", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
-                        body: JSON.stringify({ runId: run.id, action: "approve" }),
+                        body: JSON.stringify({ teamId, workflowId, runId: run.id, action: "approve" }),
                       });
                       router.refresh();
                     } catch (err) {
@@ -243,10 +243,10 @@ export default function RunDetailClient({
                     setActionError("");
                     try {
                       const note = prompt("Reason for rejection (optional):");
-                      await fetchJson(`/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(workflowId)}`, {
+                      await fetchJson("/api/teams/workflow-runs", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
-                        body: JSON.stringify({ runId: run.id, action: "request_changes", ...(note ? { note } : {}) }),
+                        body: JSON.stringify({ teamId, workflowId, runId: run.id, action: "request_changes", ...(note ? { note } : {}) }),
                       });
                       router.refresh();
                     } catch (err) {
