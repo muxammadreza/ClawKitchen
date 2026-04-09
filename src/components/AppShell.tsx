@@ -305,23 +305,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     },
   ];
 
-  const sideWidth = collapsed ? "w-16" : "w-72";
+  const sideWidth = collapsed ? "w-16" : "w-62";
 
   return (
     <ToastProvider>
       <div className="flex h-dvh w-dvw overflow-hidden">
         <aside className={`flex shrink-0 flex-col border-r border-[color:var(--ck-border-subtle)] bg-[color:var(--ck-bg-soft)]/95 backdrop-blur-[var(--ck-glass-blur)] ${sideWidth}`}>
-          <div className="flex h-14 items-center justify-between gap-2 border-b border-[color:var(--ck-border-subtle)] px-3">
-            <Link href="/" className="text-sm font-semibold tracking-tight" title="Home">
-              {collapsed ? "CK" : "Claw Kitchen"}
-            </Link>
-            <button
-              onClick={toggleCollapsed}
-              className="rounded-lg px-2 py-1 text-sm text-[color:var(--ck-text-secondary)] hover:bg-white/5 hover:text-[color:var(--ck-text-primary)]"
-              title={collapsed ? "Expand" : "Collapse"}
-            >
-              {collapsed ? "»" : "«"}
-            </button>
+          <div className={`flex h-14 items-center border-b border-[color:var(--ck-border-subtle)] ${collapsed ? "justify-center px-2" : "justify-between gap-2 px-3"}`}>
+            {collapsed ? (
+              <button
+                onClick={toggleCollapsed}
+                className="grid h-9 w-9 place-items-center rounded-lg text-[color:var(--ck-text-secondary)] transition-colors hover:bg-white/10 hover:text-[color:var(--ck-text-primary)]"
+                title="Expand sidebar"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="3" />
+                  <path d="M9 3v18" />
+                  <path d="M14 10l2 2-2 2" />
+                </svg>
+              </button>
+            ) : (
+              <>
+                <Link href="/" className="text-sm font-semibold tracking-tight" title="Home">
+                  Claw Kitchen
+                </Link>
+                <button
+                  onClick={toggleCollapsed}
+                  className="grid h-9 w-9 place-items-center rounded-lg text-[color:var(--ck-text-secondary)] transition-colors hover:bg-white/10 hover:text-[color:var(--ck-text-primary)]"
+                  title="Collapse sidebar"
+                >
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="3" />
+                    <path d="M9 3v18" />
+                    <path d="M14 14l-2-2 2-2" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
 
           <div className="border-b border-[color:var(--ck-border-subtle)] p-2">
@@ -329,18 +349,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 className="w-full rounded-lg bg-white/5 px-2 py-2 text-xs font-medium text-[color:var(--ck-text-secondary)] hover:bg-white/10"
                 title={selectedTeamId ? `Team: ${selectedTeamId}` : "Select team"}
-                onClick={() => {
-                  const id = teamIds[0] || "";
-                  if (!id) return;
-                  setStoredTeamId(id);
-                  try {
-                    localStorage.setItem("ck-selected-team", id);
-                  } catch {
-                    // ignore
-                  }
-
-                  syncTeamToCurrentUrl(id);
-                }}
+                onClick={toggleCollapsed}
               >
                 👥
               </button>
@@ -411,7 +420,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center justify-between gap-2 border-t border-[color:var(--ck-border-subtle)] p-2">
             <a
-              href="https://github.com/JIGGAI/ClawRecipes/tree/main/docs"
+              href="https://docs.clawkitchen.ai"
               target="_blank"
               rel="noreferrer"
               className={
