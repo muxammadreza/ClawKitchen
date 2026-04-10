@@ -8,6 +8,7 @@ import type { WorkflowFileV1 } from "@/lib/workflows/types";
 import { validateWorkflowFileV1 } from "@/lib/workflows/validate";
 import { getMediaNodeConfig, isMediaNode, type MediaGenerationConfig } from "@/lib/workflows/media-nodes";
 import { MediaGenerationConfigComponent } from "@/components/media/MediaGenerationConfig";
+import { RunLoadingOverlay } from "@/components/RunLoadingOverlay";
 
 // Helper function to collect upstream variables for template insertion
 function getUpstreamVariables(
@@ -400,6 +401,7 @@ export default function WorkflowsEditorClient({
   // Inspector state (parity with modal)
   const [workflowRuns, setWorkflowRuns] = useState<string[]>([]);
   const [workflowRunsLoading, setWorkflowRunsLoading] = useState(false);
+  const [runOverlayOpen, setRunOverlayOpen] = useState(false);
   const [workflowRunsError, setWorkflowRunsError] = useState("");
   const [selectedWorkflowRunId, setSelectedWorkflowRunId] = useState<string>("");
 
@@ -3034,6 +3036,7 @@ export default function WorkflowsEditorClient({
 
                             setWorkflowRunsError("");
                             setWorkflowRunsLoading(true);
+                            setRunOverlayOpen(true);
                             try {
                               const res = await fetch("/api/teams/workflow-runs", {
                                 method: "POST",
@@ -3050,6 +3053,7 @@ export default function WorkflowsEditorClient({
                                 return;
                               }
 
+                              setRunOverlayOpen(false);
                               const listRes = await fetch(
                                 `/api/teams/workflow-runs?teamId=${encodeURIComponent(teamId)}&workflowId=${encodeURIComponent(wfId)}`,
                                 { cache: "no-store" }
@@ -3060,6 +3064,7 @@ export default function WorkflowsEditorClient({
                               const list = files.map((f: unknown) => String(f ?? "").trim()).filter((f: string) => Boolean(f));
                               setWorkflowRuns(list);
                             } catch (e: unknown) {
+                              setRunOverlayOpen(false);
                               setWorkflowRunsError(e instanceof Error ? e.message : String(e));
                             } finally {
                               setWorkflowRunsLoading(false);
@@ -3394,6 +3399,7 @@ export default function WorkflowsEditorClient({
           </div>
         </div>
       </div>
+      <RunLoadingOverlay open={runOverlayOpen} />
     </div>
   );
 }
